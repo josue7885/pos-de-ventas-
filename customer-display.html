@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pantalla cliente</title>
+    <style>
+      :root {
+        --bg: #f8fafc;
+        --panel: #ffffff;
+        --soft: #eef2ff;
+        --primary: #2563eb;
+        --success: #10b981;
+        --warning: #f59e0b;
+        --text: #111827;
+        --muted: #64748b;
+        --line: #dfe7f1;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%); color: var(--text); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+      body { padding: 24px; }
+      .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; background: white; border: 1px solid var(--line); border-radius: 18px; padding: 18px 22px; box-shadow: 0 8px 20px rgba(15,23,42,0.06); }
+      .topbar h1 { margin: 0; font-size: clamp(24px, 2vw, 36px); }
+      .chip { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; background: var(--soft); color: var(--primary); font-weight: 700; }
+      .grid { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 18px; }
+      .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 18px; box-shadow: 0 8px 20px rgba(15,23,42,0.04); }
+      .panel h2 { margin-top: 0; margin-bottom: 14px; color: var(--muted); font-size: 1rem; letter-spacing: 0.08em; text-transform: uppercase; }
+      .order-item { padding: 14px 14px; border: 1px solid var(--line); border-radius: 14px; background: #f9fafb; margin-bottom: 10px; }
+      .order-header { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+      .tag { padding: 6px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; }
+      .tag.pending { background: rgba(245,158,11,0.12); color: #b45309; }
+      .tag.preparing { background: rgba(59,130,246,0.12); color: #1d4ed8; }
+      .tag.ready { background: rgba(16,185,129,0.12); color: #047857; }
+      .tag.served { background: rgba(168,85,247,0.12); color: #7c3aed; }
+      .meta { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
+      .summary-card { display: grid; gap: 12px; }
+      .stat { background: linear-gradient(135deg, #eff6ff, #f8fafc); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+      .stat strong { display: block; font-size: 1.7rem; }
+      .empty { color: var(--muted); text-align: center; padding: 20px; border: 1px dashed var(--line); border-radius: 12px; }
+      @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Estado de su pedido</h1>
+      </div>
+      <div class="chip" id="live-status">Conectado</div>
+    </header>
+
+    <main class="grid">
+      <section class="panel">
+        <h2>Órdenes activas</h2>
+        <div id="orders-list"></div>
+      </section>
+      <aside class="panel summary-card">
+        <h2>Resumen</h2>
+        <div class="stat">
+          <span>Pedidos pendientes</span>
+          <strong id="pending-count">0</strong>
+        </div>
+        <div class="stat">
+          <span>En preparación</span>
+          <strong id="preparing-count">0</strong>
+        </div>
+        <div class="stat">
+          <span>Listos</span>
+          <strong id="ready-count">0</strong>
+        </div>
+      </aside>
+    </main>
+
+    <script>
+      const API_BASE = (localStorage.getItem('pos_api_base') || 'http://localhost:3000');
+      const statusLabels = {
+        pending: 'Pendiente',
+        preparing: 'Preparando',
+        ready: 'Listo',
+        served: 'Entregado'
+      };
+
+      function formatStatusClass(status) {
+        return status || 'pending';
+      }
+
+      let customerOrderCache = [];
+
+      function applyOrders(orders) {
+        customerOrderCache = orders;
+        const active = orders.filter((order) => !['served', 'cancelled'].includes(order.status));
+
+        const pendingCount = orders.filter((o) => o.status === 'pending').length;
+        const preparingCount = orders.filter((o) => o.status === 'preparing').length;
+        const readyCount = orders.filter((o) => o.status === 'ready').length;
+
+        document.getElementById('pending-count').textContent = String(pendingCount);
+        document.getElementById('preparing-count').textContent = String(preparingCount);
+        document.getElementById('ready-count').textContent = String(readyCount);
+
+        const list = document.getElementById('orders-list');
+        if (!active.length) {
+          list.innerHTML = '<div class="empty">No hay órdenes para mostrar.</div>';
+          return;
+        }
+
+        list.innerHTML = active.map((order) => {
+          const items = (order.items || []).map((item) => `${item.name} x ${item.qty}`).join(', ');
+          return `
+            <div class="order-item">
+              <div class="order-header">
+                <strong>Orden #${order.id}</strong>
+                <span class="tag ${formatStatusClass(order.status)}">${statusLabels[order.status] || order.status}</span>
+              </div>
+              <div class="meta">Mesa: ${order.table_number || 'Mostrador'} · Cliente: ${order.customer_name || 'Cliente'}</div>
+              <div class="meta">Productos: ${items || 'Sin productos'}</div>
+              <div class="meta">Hora: ${new Date(order.created_at).toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' })}</div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      async function loadOrders() {
+        try {
+          const response = await fetch(`${API_BASE}/api/orders`);
+          if (!response.ok) throw new Error('No disponible');
+          const data = await response.json();
+          const orders = Array.isArray(data.orders) ? data.orders : [];
+          applyOrders(orders);
+        } catch (error) {
+          document.getElementById('orders-list').innerHTML = '<div class="empty">Sin conexión con el servidor de ordenes.</div>';
+        }
+      }
+
+      try {
+        const stream = new EventSource(`${API_BASE}/api/orders/stream`);
+        stream.addEventListener('orders', (event) => {
+          try {
+            const payload = JSON.parse(event.data || '{}');
+            if (!payload || !payload.payload) return;
+            const order = payload.payload;
+            const current = customerOrderCache.filter((item) => item.id !== order.id);
+            current.unshift(order);
+            applyOrders(current);
+          } catch (err) {
+            console.warn('Error procesando SSE de cliente', err.message);
+          }
+        });
+        stream.onopen = () => document.getElementById('live-status').textContent = 'En vivo';
+        stream.onerror = () => {
+          document.getElementById('live-status').textContent = 'Reconectando';
+        };
+      } catch (err) {
+        console.warn('No fue posible conectar el stream de ordenes del cliente', err.message);
+      }
+
+      loadOrders();
+    </script>
+  </body>
+</html>

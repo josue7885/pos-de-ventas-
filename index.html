@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>POS Control</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="login-screen" class="auth-screen">
+      <div class="auth-card">
+        <div class="brand-block">
+          <img id="login-company-logo" class="brand-logo hidden" alt="Logo de la empresa" />
+          <span id="brand-badge" class="brand-badge">POS</span>
+          <h1 id="login-company-name">Control de ventas</h1>
+        </div>
+
+        <label class="field-label" for="employee-select">Empleado</label>
+        <select id="employee-select" class="field-input"></select>
+
+        <label class="field-label" for="pin-input">PIN</label>
+        <input id="pin-input" class="field-input" type="password" maxlength="4" placeholder="••••" autocomplete="off" />
+
+        <button id="login-btn" class="primary-btn">Ingresar</button>
+        <p id="login-error" class="error-text hidden">Credenciales inválidas</p>
+      </div>
+    </div>
+
+    <div id="app-shell" class="app-shell hidden">
+      <aside class="sidebar">
+        <div class="brand-box">
+          <img id="sidebar-company-logo" class="sidebar-logo hidden" alt="Logo de la empresa" />
+          <div class="brand-badge" id="sidebar-brand-badge">POS</div>
+          <div>
+            <strong id="sidebar-company-name">POS Control</strong>
+            <small id="sidebar-company-subtitle">Version 2.0</small>
+          </div>
+        </div>
+
+        <nav id="nav-menu" class="nav-menu"></nav>
+
+        <div class="sidebar-footer">
+          <button id="logout-btn" class="ghost-btn">Cerrar sesión</button>
+        </div>
+      </aside>
+
+      <main class="main-panel">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Usuario activo</p>
+            <h2 id="user-name">Empleado</h2>
+          </div>
+          <div class="topbar-status">
+            <span id="user-role" class="role-badge">Rol</span>
+            <span id="shift-status" class="status-badge neutral">Caja cerrada</span>
+          </div>
+        </header>
+
+        <section id="module-pos" class="module active">
+          <div id="admin-hero" class="admin-hero panel">
+            <div class="hero-copy">
+              <span class="eyebrow">Panel ejecutivo</span>
+              <h3>Administración empresarial</h3>
+              <p>Ventas, caja, inventario, usuarios, facturación y operación del restaurante desde una sola vista.</p>
+            </div>
+            <div class="hero-cta">
+              <button id="quick-sale-btn" class="primary-btn small" type="button">Venta rápida</button>
+              <button id="open-settings-btn" class="ghost-btn small" type="button">Configuración</button>
+              <button id="run-full-test-btn" class="ghost-btn small" type="button">Prueba flujo completo</button>
+            </div>
+          </div>
+
+          <div id="dashboard-summary" class="dashboard-summary"></div>
+
+          <div class="pos-grid">
+            <div class="catalog-panel panel">
+              <div class="panel-header">
+                <h3>Catálogo</h3>
+                <div class="catalog-tools">
+                  <select id="category-filter" class="mini-select">
+                    <option value="all">Todas</option>
+                  </select>
+                  <input id="search-input" type="text" placeholder="Buscar producto..." />
+                </div>
+              </div>
+              <div id="product-grid" class="product-grid"></div>
+            </div>
+
+            <aside class="ticket-panel panel">
+              <div class="panel-header vertical-header">
+                <h3>Ticket actual</h3>
+                <button id="clear-cart-btn" class="danger-btn small">Vaciar</button>
+              </div>
+
+              <ul id="cart-list" class="cart-list"></ul>
+
+              <div class="order-summary">
+                <div class="summary-row">
+                  <span>Subtotal</span>
+                  <strong>$<span id="subtotal-value">0.00</span></strong>
+                </div>
+                <div class="summary-row">
+                  <span>Descuento</span>
+                  <strong>-$<span id="discount-value">0.00</span></strong>
+                </div>
+                <div class="summary-row">
+                  <span>IVA</span>
+                  <strong>$<span id="tax-value">0.00</span></strong>
+                </div>
+                <div class="summary-row total-row">
+                  <span>Total</span>
+                  <strong>$<span id="total-value">0.00</span></strong>
+                </div>
+              </div>
+
+              <div class="payment-box compact-billing-box">
+                <div class="payment-header">
+                 <div>
+                   <span class="eyebrow">Facturación</span>
+                   <h4>Venta actual</h4>
+                 </div>
+                 <span class="payment-pill">Factura</span>
+                </div>
+
+                <div class="quick-sale-summary">
+                 <div>
+                   <small>Subtotal</small>
+                   <strong>$<span id="ticket-subtotal-mini">0.00</span></strong>
+                 </div>
+                 <div>
+                   <small>Total</small>
+                   <strong>$<span id="ticket-total-mini">0.00</span></strong>
+                 </div>
+                </div>
+
+                <button id="quick-billing-btn" class="ghost-btn small full-width-btn" type="button">Ingresar datos de factura</button>
+              </div>
+
+              <div class="action-row">
+                <button id="process-sale-btn" class="primary-btn large">Cobrar venta</button>
+                <button id="send-kitchen-btn" class="ghost-btn large" title="Enviar la orden actual a cocina">Enviar a cocina</button>
+                <button id="test-sale-btn" class="ghost-btn large" title="Crear una venta de prueba y generar factura">Venta de prueba</button>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section id="module-tables" class="module hidden">
+          <div class="panel">
+            <div class="panel-header">
+              <h3>Mesas del restaurante</h3>
+              <div class="table-tools">
+                <select id="table-room-filter" class="mini-select"></select>
+                <button id="new-room-btn" class="ghost-btn small" type="button">Nuevo salón</button>
+                <button id="add-table-btn" class="primary-btn small" type="button">Agregar mesa</button>
+              </div>
+            </div>
+            <div id="tables-grid" class="tables-grid"></div>
+          </div>
+        </section>
+
+        <section id="module-orders" class="module hidden">
+          <div class="panel">
+            <div class="panel-header">
+              <h3>Órdenes de meseros</h3>
+            </div>
+            <div id="orders-list" class="order-list"></div>
+          </div>
+        </section>
+
+        <section id="module-kitchen" class="module hidden">
+          <div class="panel">
+            <div class="panel-header">
+              <h3>Cocina</h3>
+              <div class="table-tools">
+                <button id="open-kitchen-display-btn" class="ghost-btn small" type="button">Pantalla cocina</button>
+                <button id="open-customer-display-btn" class="ghost-btn small" type="button">Pantalla cliente</button>
+              </div>
+            </div>
+            <div id="kitchen-list" class="order-list"></div>
+          </div>
+        </section>
+
+        <section id="module-inventory" class="module hidden">
+          <div class="inventory-layout">
+            <div class="panel">
+              <div class="panel-header">
+                <h3>Inventario</h3>
+                <button id="new-product-btn" class="primary-btn small">Nuevo producto</button>
+              </div>
+
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Producto</th>
+                      <th>Categoría</th>
+                      <th>Precio</th>
+                      <th>Stock</th>
+                      <th>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody id="inventory-table-body"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div id="product-form-panel" class="panel hidden">
+              <div class="panel-header">
+                <h3 id="form-title">Agregar producto</h3>
+              </div>
+              <form id="product-form" class="product-form">
+                <input type="hidden" id="product-id" />
+
+                <label>Nombre</label>
+                <input id="product-name" type="text" required />
+
+                <label>Categoría</label>
+                <input id="product-category" type="text" required />
+
+                <label>Precio</label>
+                <input id="product-price" type="number" min="0" step="0.01" required />
+
+                <label>Stock</label>
+                <input id="product-stock" type="number" min="0" step="1" required />
+
+                <div class="form-actions">
+                  <button type="submit" class="primary-btn">Guardar</button>
+                  <button type="button" id="cancel-product-btn" class="ghost-btn">Cancelar</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <section id="module-users" class="module hidden">
+          <div class="panel">
+            <div class="panel-header">
+              <h3>Usuarios y roles</h3>
+              <button id="new-user-btn" class="primary-btn small">Nuevo usuario</button>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Nombre</th>
+                    <th>Rol</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="users-table-body"></tbody>
+              </table>
+            </div>
+
+            <div id="user-form-panel" class="panel hidden">
+              <form id="user-form" class="product-form">
+                <input type="hidden" id="user-id" />
+
+                <label>Nombre</label>
+                <input id="user-name" type="text" required />
+
+                <label>Rol</label>
+                <select id="user-role-input">
+                  <option value="admin">Administrador</option>
+                  <option value="cajero">Cajero</option>
+                  <option value="contador">Contador</option>
+                  <option value="gerente">Gerente</option>
+                  <option value="cocina">Cocina</option>
+                </select>
+
+                <label>PIN (4 dígitos)</label>
+                <input id="user-pin" type="password" maxlength="4" />
+
+                <div class="form-actions">
+                  <button type="submit" class="primary-btn">Guardar</button>
+                  <button type="button" id="cancel-user-btn" class="ghost-btn">Cancelar</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <section id="module-settings" class="module hidden">
+          <div class="panel">
+            <div class="panel-header">
+              <h3>Configuración de empresa</h3>
+            </div>
+
+            <form id="company-settings-form" class="settings-form">
+              <div class="settings-grid">
+                <div class="settings-group">
+                  <h4>Empresa</h4>
+                  <label>Nombre comercial</label>
+                  <input id="setting-company_name" type="text" />
+                  <label>Nombre legal</label>
+                  <input id="setting-company_legal_name" type="text" />
+                  <label>NIT / RUC</label>
+                  <input id="setting-company_nit" type="text" />
+                  <label>Giro</label>
+                  <input id="setting-company_giro" type="text" />
+                  <label>Dirección</label>
+                  <input id="setting-company_address" type="text" />
+                  <label>Departamento</label>
+                  <input id="setting-company_department" type="text" />
+                  <label>Municipio</label>
+                  <input id="setting-company_municipality" type="text" />
+                  <label>Teléfono</label>
+                  <input id="setting-company_phone" type="tel" />
+                  <label>Correo empresa</label>
+                  <input id="setting-company_email" type="email" />
+                  <label>Sitio web</label>
+                  <input id="setting-company_website" type="url" />
+                  <label>Logo</label>
+                  <input id="setting-company_logo" type="file" accept="image/*" />
+                  <img id="company-logo-preview" class="logo-preview hidden" alt="Vista previa del logo" />
+                </div>
+ 
+                <div class="settings-group">
+                  <h4>Conexión</h4>
+                  <label>URL base del servidor (PC) <small>ej. http://192.168.1.10:3000</small></label>
+                  <input id="setting-server_base" type="text" placeholder="http://localhost:3000" />
+                  <button id="test-server-connection-btn" type="button" class="ghost-btn small">Probar conexión</button>
+                </div>
+
+                <div class="settings-group">
+                  <h4>PIN Ejecutivo</h4>
+                  <p>Para mayor seguridad, activa un PIN que se solicitará para acciones administrativas sensibles.</p>
+                  <label>Nuevo PIN ejecutivo (4-8 dígitos)</label>
+                  <input id="setting-executive_pin" type="password" maxlength="8" autocomplete="off" />
+                  <label>Confirmar PIN ejecutivo</label>
+                  <input id="setting-executive_pin_confirm" type="password" maxlength="8" autocomplete="off" />
+                  <div style="margin-top:8px;">
+                    <button id="save-executive-pin-btn" type="button" class="primary-btn small">Guardar PIN ejecutivo</button>
+                  </div>
+                </div>
+ 
+                <div class="settings-group">
+                  <h4>Ministerio de Hacienda</h4>
+                  <label>Ambiente</label>
+                  <select id="setting-hacienda_env">
+                    <option value="sandbox">Sandbox</option>
+                    <option value="production">Producción</option>
+                  </select>
+                  <label>Modo operativo</label>
+                  <select id="setting-hacienda_mode">
+                    <option value="sandbox">Prueba / Sandbox</option>
+                    <option value="production">Producción</option>
+                  </select>
+                  <label>Negocio activo</label>
+                  <select id="setting-business_active">
+                    <option value="false">No</option>
+                    <option value="true">Sí</option>
+                  </select>
+                  <label>IVA general</label>
+                  <input id="setting-iva_rate" type="number" step="0.01" min="0" max="1" />
+                  <label>URL API Hacienda</label>
+                  <input id="setting-hacienda_url" type="url" />
+                  <label>Usuario</label>
+                  <input id="setting-hacienda_user" type="text" />
+                  <label>Contraseña</label>
+                  <input id="setting-hacienda_password" type="password" />
+                  <label>Token</label>
+                  <input id="setting-hacienda_token" type="text" />
+                  <label>Ruta certificado</label>
+                  <input id="setting-hacienda_certificate_path" type="text" />
+                  <label>Contraseña certificado</label>
+                  <input id="setting-hacienda_certificate_password" type="password" />
+                  <label>Prefijo factura</label>
+                  <input id="setting-invoice_prefix" type="text" maxlength="10" />
+                  <label>Serie / Correlativo</label>
+                  <input id="setting-invoice_serie" type="text" maxlength="10" />
+                  <label>Siguiente número</label>
+                  <input id="setting-invoice_next_number" type="number" min="1" />
+                </div>
+
+                <div class="settings-group">
+                  <h4>Correo y facturación</h4>
+                  <label>Enviar factura por correo</label>
+                  <select id="setting-invoice_email_enabled">
+                    <option value="false">No</option>
+                    <option value="true">Sí</option>
+                  </select>
+                  <label>SMTP Host</label>
+                  <input id="setting-smtp_host" type="text" />
+                  <label>SMTP Puerto</label>
+                  <input id="setting-smtp_port" type="number" min="1" />
+                  <label>SMTP Seguro</label>
+                  <select id="setting-smtp_secure">
+                    <option value="false">No</option>
+                    <option value="true">Sí</option>
+                  </select>
+                  <label>SMTP Usuario</label>
+                  <input id="setting-smtp_user" type="text" />
+                  <label>SMTP Contraseña</label>
+                  <input id="setting-smtp_password" type="password" />
+                  <label>Remitente</label>
+                  <input id="setting-smtp_from" type="email" />
+                  <label>Nombre del remitente</label>
+                  <input id="setting-smtp_from_name" type="text" />
+                </div>
+              </div>
+
+              <div class="form-actions settings-actions">
+                <button id="activate-business-btn" type="button" class="danger-btn small">Activar negocio 100% funcional</button>
+                <button type="submit" class="primary-btn">Guardar configuración</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <section id="module-cash" class="module hidden">
+          <div class="cash-grid">
+            <div class="panel">
+              <div class="panel-header">
+                <h3>Turno de caja</h3>
+                <button id="toggle-shift-btn" class="primary-btn small">Abrir turno</button>
+              </div>
+
+              <div id="cash-panel-content" class="cash-panel-content"></div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-header">
+                <h3>Resumen</h3>
+              </div>
+              <div id="shift-summary" class="summary-cards"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="module-reports" class="module hidden">
+          <div class="panel">
+            <div class="panel-header">
+              <h3>Reportes</h3>
+              <div class="report-tools">
+                <button id="refresh-report-btn" class="primary-btn small">Actualizar</button>
+                <button id="export-csv-btn" class="ghost-btn small">Exportar CSV</button>
+                <button id="export-xlsx-btn" class="ghost-btn small">Exportar XLSX</button>
+              </div>
+            </div>
+
+            <div id="report-cards" class="summary-cards"></div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Empleado</th>
+                    <th>Pago</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody id="sales-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+   <div id="billing-modal" class="modal hidden" aria-hidden="true">
+     <div class="modal-backdrop" data-close-modal="true"></div>
+     <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="billing-modal-title">
+       <div class="modal-header">
+         <div>
+           <span class="eyebrow">Factura electrónica</span>
+           <h3 id="billing-modal-title">Datos de la factura</h3>
+         </div>
+         <button type="button" id="close-billing-modal-btn" class="icon-close" aria-label="Cerrar">×</button>
+       </div>
+
+       <div class="modal-body">
+         <div class="invoice-summary-box">
+           <div>
+             <small>Cliente</small>
+             <strong id="modal-customer-summary">Consumidor final</strong>
+           </div>
+           <div>
+             <small>Total</small>
+             <strong id="modal-total-summary">$0.00</strong>
+           </div>
+         </div>
+
+         <div class="field-grid two-columns">
+           <div class="field-group">
+             <label for="billing-payment-method">Método de pago</label>
+             <select id="billing-payment-method" class="mini-select full-width">
+               <option value="efectivo">Efectivo</option>
+               <option value="tarjeta">Tarjeta</option>
+               <option value="transferencia">Transferencia</option>
+             </select>
+           </div>
+
+           <div class="field-group">
+             <label for="billing-cash-received">Monto recibido</label>
+             <input id="billing-cash-received" type="number" step="0.01" min="0" placeholder="0.00" />
+           </div>
+         </div>
+
+         <div class="field-grid two-columns">
+           <div class="field-group">
+             <label for="billing-customer-name">Nombre / razón social</label>
+             <input id="billing-customer-name" type="text" placeholder="Nombre del cliente" />
+           </div>
+
+           <div class="field-group">
+             <label for="billing-customer-type">Tipo de receptor</label>
+             <select id="billing-customer-type" class="mini-select full-width">
+               <option value="consumidor_final">Consumidor final</option>
+               <option value="credito_fiscal">Crédito fiscal</option>
+             </select>
+           </div>
+         </div>
+
+         <div class="field-grid two-columns">
+           <div class="field-group">
+             <label for="billing-customer-nit">NIT / DUI / documento</label>
+             <input id="billing-customer-nit" type="text" placeholder="CF, NIT o DUI" />
+           </div>
+
+           <div class="field-group">
+             <label for="billing-customer-giro">Giro o actividad</label>
+             <input id="billing-customer-giro" type="text" placeholder="Actividad comercial" />
+           </div>
+         </div>
+
+         <div class="field-group">
+           <label for="billing-customer-address">Dirección</label>
+           <input id="billing-customer-address" type="text" placeholder="Dirección fiscal o domicilio" />
+         </div>
+
+         <div class="field-grid two-columns">
+           <div class="field-group">
+             <label for="billing-customer-department">Departamento</label>
+             <input id="billing-customer-department" type="text" placeholder="Ej. San Salvador" />
+           </div>
+
+           <div class="field-group">
+             <label for="billing-customer-municipality">Municipio</label>
+             <input id="billing-customer-municipality" type="text" placeholder="Ej. San Salvador" />
+           </div>
+         </div>
+
+         <div class="field-grid two-columns">
+           <div class="field-group">
+             <label for="billing-customer-phone">Teléfono</label>
+             <input id="billing-customer-phone" type="tel" placeholder="(503) 0000-0000" />
+           </div>
+
+           <div class="field-group">
+             <label for="billing-customer-email">Correo electrónico</label>
+             <input id="billing-customer-email" type="email" placeholder="cliente@correo.com" />
+           </div>
+         </div>
+
+         <div class="field-group">
+           <label for="billing-customer-notes">Observaciones opcionales</label>
+           <textarea id="billing-customer-notes" rows="3" placeholder="Notas internas o referencia de la venta"></textarea>
+         </div>
+
+         <div class="field-group">
+           <label for="customer-select">Cliente guardado</label>
+           <select id="customer-select" class="mini-select full-width">
+             <option value="">Cliente general / consumidor final</option>
+           </select>
+         </div>
+
+         <div class="modal-actions">
+           <button id="save-customer-btn" class="ghost-btn small" type="button">Guardar cliente</button>
+           <button id="confirm-billing-btn" class="primary-btn small" type="button">Confirmar cobro</button>
+         </div>
+       </div>
+     </div>
+   </div>
+
+    <script src="app_utils.js"></script>
+    <script src="app.js"></script>
+    <script src="app_exec_pin.js"></script>
+  </body>
+</html>

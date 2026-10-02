@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pantalla de cocina</title>
+    <style>
+      :root {
+        --bg: #0f172a;
+        --panel: #111827;
+        --panel-soft: #1f2937;
+        --primary: #2563eb;
+        --success: #10b981;
+        --warning: #f59e0b;
+        --danger: #ef4444;
+        --text: #e5e7eb;
+        --muted: #94a3b8;
+        --line: rgba(148, 163, 184, 0.2);
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; min-height: 100%; background: linear-gradient(135deg, #020817, #111827 40%, #0f172a);
+        color: var(--text); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      }
+      body { padding: 20px; }
+      .header {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        padding: 18px 22px; background: rgba(15, 23, 42, 0.7); border: 1px solid var(--line); border-radius: 18px; margin-bottom: 18px;
+      }
+      .header h1 { margin: 0; font-size: clamp(26px, 2vw, 34px); }
+      .status-bar {
+        display: flex; gap: 10px; flex-wrap: wrap;
+      }
+      .chip {
+        border-radius: 999px; padding: 8px 12px; background: rgba(37, 99, 235, 0.14); border: 1px solid rgba(96,165,250,0.3); color: #bfdbfe; font-weight: 700; font-size: 0.8rem;
+      }
+      .layout {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px;
+      }
+      .section {
+        background: rgba(17, 24, 39, 0.9); border: 1px solid var(--line); border-radius: 18px; padding: 16px; min-height: 210px;
+      }
+      .section h2 {
+        margin: 0 0 12px; font-size: 1.1rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted);
+      }
+      .order-card {
+        background: rgba(31, 41, 55, 0.95); border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin-bottom: 12px;
+      }
+      .order-head {
+        display: flex; justify-content: space-between; margin-bottom: 8px; gap: 8px;
+      }
+      .badge {
+        border-radius: 999px; padding: 5px 9px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+      }
+      .badge.pending { background: rgba(245, 158, 11, 0.14); color: #fbbf24; }
+      .badge.preparing { background: rgba(59, 130, 246, 0.14); color: #93c5fd; }
+      .badge.ready { background: rgba(16, 185, 129, 0.16); color: #6ee7b7; }
+      .badge.served { background: rgba(168, 85, 247, 0.12); color: #d8b4fe; }
+      .order-card h3 { margin: 0 0 6px; font-size: 1.2rem; }
+      .meta { color: var(--muted); font-size: 0.85rem; margin: 4px 0; }
+      .items { margin: 8px 0; padding-left: 18px; color: #e2e8f0; }
+      .actions {
+        display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;
+      }
+      button {
+        border: none; border-radius: 10px; padding: 9px 12px; font-weight: 700; cursor: pointer;
+      }
+      .secondary { background: #e2e8f0; color: #0f172a; }
+      .primary { background: var(--primary); color: white; }
+      .success { background: var(--success); color: white; }
+      .warning { background: var(--warning); color: #111827; }
+      .muted { background: rgba(148,163,184,0.12); color: #e2e8f0; }
+      .empty { color: var(--muted); border: 1px dashed var(--line); border-radius: 12px; padding: 18px; text-align: center; }
+      @media (max-width: 700px) {
+        body { padding: 12px; }
+        .header { flex-direction: column; align-items: flex-start; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="header">
+      <div>
+        <h1>Pantalla de cocina</h1>
+      </div>
+      <div class="status-bar" id="quick-stats"></div>
+    </header>
+
+    <main class="layout">
+      <section class="section">
+        <h2>Pendientes</h2>
+        <div id="pending-list"></div>
+      </section>
+      <section class="section">
+        <h2>En preparación</h2>
+        <div id="preparing-list"></div>
+      </section>
+      <section class="section">
+        <h2>Listas</h2>
+        <div id="ready-list"></div>
+      </section>
+    </main>
+
+    <script>
+      const API_BASE = (localStorage.getItem('pos_api_base') || 'http://localhost:3000');
+      const orderStatuses = ['pending', 'preparing', 'ready', 'served'];
+      const statusLabels = {
+        pending: 'Pendiente',
+        preparing: 'Preparando',
+        ready: 'Lista',
+        served: 'Entregada'
+      };
+
+      function formatMoney(value) {
+        return Number(value || 0).toLocaleString('es-SV', { style: 'currency', currency: 'USD' });
+      }
+
+      function renderStats(orders) {
+        const stats = document.getElementById('quick-stats');
+        const pending = orders.filter((o) => o.status === 'pending').length;
+        const preparing = orders.filter((o) => o.status === 'preparing').length;
+        const ready = orders.filter((o) => o.status === 'ready').length;
+        stats.innerHTML = [
+          `<span class="chip">Pendientes: ${pending}</span>`,
+          `<span class="chip">Preparando: ${preparing}</span>`,
+          `<span class="chip">Listas: ${ready}</span>`
+        ].join('');
+      }
+
+      function renderOrdersByStatus(orders, status, containerId) {
+        const container = document.getElementById(containerId);
+        const items = orders.filter((order) => order.status === status);
+        if (!items.length) {
+          container.innerHTML = '<div class="empty">Sin órdenes</div>';
+          return;
+        }
+
+        container.innerHTML = items.map((order) => {
+          const itemList = (order.items || []).map((item) => `<li>${item.name} x ${item.qty}</li>`).join('');
+          return `
+                  <article class="order-card" id="order-card-${order.id}">
+              <div class="order-head">
+                <h3>Orden #${order.id}</h3>
+                <span class="badge ${order.status}">${statusLabels[order.status] || order.status}</span>
+              </div>
+              <div class="meta">Mesa: ${order.table_number || 'Mostrador'} · Cliente: ${order.customer_name || 'Cliente'}</div>
+              <div class="meta">Empleado: ${order.employee_name || 'Sistema'} · ${new Date(order.created_at).toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' })}</div>
+              <ul class="items">${itemList}</ul>
+              <div class="meta">Total: ${formatMoney(order.total)}</div>
+              <div class="actions">
+                ${status !== 'preparing' ? '<button class="primary" data-action="preparing" data-order-id="' + order.id + '">Preparando</button>' : ''}
+                ${status !== 'ready' ? '<button class="success" data-action="ready" data-order-id="' + order.id + '">Listo</button>' : ''}
+                ${status !== 'served' ? '<button class="warning" data-action="served" data-order-id="' + order.id + '">Entregado</button>' : ''}
+                ${status !== 'pending' ? '<button class="muted" data-action="pending" data-order-id="' + order.id + '">Pendiente</button>' : ''}
+              </div>
+            </article>
+          `;
+        }).join('');
+
+        container.querySelectorAll('[data-order-id]').forEach((button) => {
+          button.addEventListener('click', async () => {
+            const orderId = button.dataset.orderId;
+            const nextStatus = button.dataset.action;
+            if (!orderStatuses.includes(nextStatus)) return;
+                  // show immediate feedback
+                  button.disabled = true;
+                  try {
+                    await updateOrderStatus(orderId, nextStatus);
+                    // if moved to ready/served, remove from kitchen display
+                    if (['ready','served','cancelled'].includes(nextStatus)) {
+                      const el = document.getElementById('order-card-' + orderId);
+                      if (el && el.parentNode) el.parentNode.removeChild(el);
+                    }
+                  } catch (e) {
+                    console.warn('No se pudo cambiar estado:', e.message);
+                    alert('No se pudo cambiar el estado.');
+                  } finally {
+                    button.disabled = false;
+                  }
+                });
+              });
+            }
+
+      async function updateOrderStatus(orderId, status) {
+        try {
+          const response = await fetch(`${API_BASE}/api/orders/${orderId}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status })
+          });
+          if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.error || 'No se pudo actualizar orden');
+          }
+          await loadOrders();
+        } catch (error) {
+          alert(error.message || 'No se pudo cambiar el estado.');
+        }
+      }
+
+      async function loadOrders() {
+        try {
+          const response = await fetch(`${API_BASE}/api/orders`);
+          if (!response.ok) throw new Error('No disponible');
+          const data = await response.json();
+          const orders = Array.isArray(data.orders) ? data.orders : [];
+          // keep a global copy for SSE merge behavior
+          window._kitchenOrders = orders;
+          renderStats(orders);
+          renderOrdersByStatus(orders, 'pending', 'pending-list');
+          renderOrdersByStatus(orders, 'preparing', 'preparing-list');
+          renderOrdersByStatus(orders, 'ready', 'ready-list');
+        } catch (error) {
+          document.body.innerHTML = '<div style="padding:24px;color:white;">No se pudo cargar la cocina. Verifica que el servidor esté activo.</div>';
+          console.error(error);
+        }
+      }
+
+      // initial load and realtime stream
+      loadOrders();
+
+            try {
+              const es = new EventSource(`${API_BASE}/api/orders/stream`);
+              es.addEventListener('orders', (e) => {
+                try {
+                  const msg = JSON.parse(e.data || '{}');
+                  const payload = msg.payload;
+                  if (!payload) return;
+
+                  // keep orders list and merge
+                  window._kitchenOrders = window._kitchenOrders || [];
+                  const existingIdx = window._kitchenOrders.findIndex((o) => o.id === payload.id);
+
+                  if (msg.event === 'new_order') {
+                    if (existingIdx >= 0) window._kitchenOrders[existingIdx] = payload;
+                    else window._kitchenOrders.unshift(payload);
+                  } else if (msg.event === 'order_update') {
+                    if (existingIdx >= 0) window._kitchenOrders[existingIdx] = payload;
+                    else window._kitchenOrders.unshift(payload);
+
+                    // If order moved to ready/served/cancelled remove it from kitchen view (kitchen only handles pending/preparing)
+                    if (['ready', 'served', 'cancelled'].includes(payload.status)) {
+                      window._kitchenOrders = window._kitchenOrders.filter((o) => o.id !== payload.id);
+                    }
+                  }
+
+                  renderStats(window._kitchenOrders || []);
+                  renderOrdersByStatus(window._kitchenOrders || [], 'pending', 'pending-list');
+                  renderOrdersByStatus(window._kitchenOrders || [], 'preparing', 'preparing-list');
+                  // Do not render 'ready' in kitchen display to keep it clean; POS and customer screens will show ready status.
+                } catch (err) {
+                  console.warn('SSE parse error', err);
+                }
+              });
+              es.onopen = () => console.log('Connected to kitchen orders stream');
+              es.onerror = (err) => console.warn('Kitchen orders stream error', err);
+            } catch (err) {
+              console.warn('Could not open orders stream', err);
+            }
+    </script>
+  </body>
+</html>

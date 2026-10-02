@@ -1,0 +1,62 @@
+{
+  "name": "pos-control-multiplatform",
+  "version": "1.1.0",
+  "description": "Sistema POS multiusuario para restaurantes y retail con soporte completo para Windows, macOS, Linux y Android.",
+  "author": "POS Control",
+  "main": "electron-main.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "start:electron": "electron .",
+    "dist": "electron-builder",
+    "build:win": "electron-builder --win portable",
+    "build:all": "electron-builder --win --mac --linux",
+    "android:add": "npx cap add android",
+    "android:sync": "npx cap sync android",
+    "android:open": "npx cap open android"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/cli": "^6.1.2",
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.0",
+    "electron-rebuild": "^3.2.9"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.1.2"
+  },
+  "build": {
+    "appId": "com.poscontrol.app",
+    "productName": "POS Control",
+    "directories": {
+      "app": "."
+    },
+    "files": [
+      "**/*",
+      "!server/node_modules/**",
+      "!.git/**",
+      "!**/.DS_Store"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "sign": false,
+      "signAndEditExecutable": false,
+      "artifactName": "POS-Control-${version}-portable.exe"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "tar.gz"
+      ]
+    }
+  }
+}
