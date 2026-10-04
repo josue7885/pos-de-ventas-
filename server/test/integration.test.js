@@ -10,7 +10,7 @@ async function start(){
  let output='';child.stderr.on('data',()=>{});
  await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('Server startup timeout: '+output)),10000);child.stdout.on('data',chunk=>{output+=chunk;const match=output.match(/listening on port (\d+)/);if(match){base='http://127.0.0.1:'+match[1];clearTimeout(timeout);resolve();}});child.once('exit',code=>{clearTimeout(timeout);reject(new Error('Startup failed '+code+output));});});
 }
-async function stop(){if(!child || child.exitCode!==null)return;await new Promise(resolve=>{child.once('exit',resolve);child.kill('SIGTERM');});}
+async function stop(signal='SIGTERM'){if(!child || child.exitCode!==null || child.signalCode!==null)return;await new Promise(resolve=>{child.once('exit',resolve);child.kill(signal);});}
 async function request(route,{token,method='GET',body,headers={}}={}){
  const response=await fetch(base+route,{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{}),...headers},body:body?JSON.stringify(body):undefined});
  const text=await response.text();let data;try{data=JSON.parse(text);}catch{data=text;}return {status:response.status,data,headers:response.headers};
@@ -128,7 +128,10 @@ test('offline backup verifies integrity, refuses live data and restores into a f
  const run=(action,dir)=>spawnSync(process.execPath,[script,action,backup],{env:{...process.env,POS_DATA_DIR:dir},encoding:'utf8'});
  try{
   assert.equal(run('backup',dataDir).status,1);
-  await stop();let result=run('backup',dataDir);assert.equal(result.status,0,result.stderr);
+  // Windows terminates child processes without running their exit cleanup.
+  // SIGKILL reproduces the same orphaned lock on every test platform.
+  await stop('SIGKILL');assert.ok(fs.existsSync(path.join(dataDir,'pos.lock')));
+  let result=run('backup',dataDir);assert.equal(result.status,0,result.stderr);
   result=run('restore',restored);assert.equal(result.status,0,result.stderr);assert.ok(fs.existsSync(path.join(restored,'pos.db')));
   assert.equal(run('restore',restored).status,1);
   fs.appendFileSync(path.join(backup,'pos.db'),'tamper');assert.equal(run('restore',path.join(dest,'invalid')).status,1);

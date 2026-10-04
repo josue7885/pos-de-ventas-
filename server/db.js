@@ -6,16 +6,8 @@ fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
 const dbPath = path.join(DATA_DIR, 'pos.db');
 
 // One server process per data directory. Never expose this directory through HTTP.
-const lockPath = path.join(DATA_DIR, 'pos.lock');
-try {
-  if (fs.existsSync(lockPath)) {
-    const pid = Number(fs.readFileSync(lockPath, 'utf8'));
-    try { process.kill(pid, 0); throw new Error('La base de datos ya está abierta por otro servidor.'); }
-    catch (error) { if (error.code !== 'ESRCH') throw error; fs.unlinkSync(lockPath); }
-  }
-  fs.writeFileSync(lockPath, String(process.pid), { flag: 'wx', mode: 0o600 });
-} catch (error) { throw new Error('No se pudo bloquear la base de datos: ' + error.message); }
-process.on('exit', () => { try { fs.unlinkSync(lockPath); } catch (_) {} });
+const releaseLock = require('./data-lock').acquireDataLock(DATA_DIR);
+process.on('exit', () => { try { releaseLock(); } catch (_) {} });
 
 async function initializeDatabase() {
   const SQL = await require('sql.js')();

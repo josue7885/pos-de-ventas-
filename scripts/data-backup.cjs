@@ -1,13 +1,13 @@
 // Offline backups: the same exclusive lock as the server prevents concurrent writes.
 const fs=require('fs'),path=require('path'),crypto=require('crypto');
+const {acquireDataLock}=require('../server/data-lock');
 const action=process.argv[2],target=process.argv[3];
 const data=path.resolve(process.env.POS_DATA_DIR || path.join(__dirname,'../server'));
 function checksum(buffer){return crypto.createHash('sha256').update(buffer).digest('hex');}
 async function main(){
   if(!['backup','restore'].includes(action) || !target)throw Error('Uso: npm run backup -- DIRECTORIO_NUEVO / npm run restore -- DIRECTORIO_RESPALDO');
   fs.mkdirSync(data,{recursive:true,mode:0o700});
-  const lock=path.join(data,'pos.lock');let fd;
-  try{fd=fs.openSync(lock,'wx',0o600);fs.writeFileSync(fd,String(process.pid));}catch{throw Error('Detén el servidor. Existe un bloqueo de datos; no se copiarán archivos.');}
+  const releaseLock=acquireDataLock(data);
   try{
     const location=path.resolve(target);
     if(action==='backup'){
@@ -30,6 +30,6 @@ async function main(){
       fs.writeFileSync(path.join(data,'pos.db'),Buffer.from(restored.export()),{flag:'wx',mode:0o600});restored.close();
       console.log('Restaurado en '+data+'. Inicia sesión de nuevo.');
     }
-  }finally{fs.closeSync(fd);fs.unlinkSync(lock);}
+  }finally{releaseLock();}
 }
 main().catch(e=>{console.error(e.message);process.exitCode=1;});
