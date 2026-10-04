@@ -1,23 +1,9 @@
 const STORAGE_KEY = 'pos_control_state_v1';
 
 const DEFAULT_STATE = {
-  employees: [
-    { id: 1, name: 'Administrador', pin: '1234', role: 'admin' },
-    { id: 2, name: 'Cajera', pin: '4321', role: 'cajero' },
-  { id: 3, name: 'Cocina', pin: '1111', role: 'cocina' },
-  { id: 4, name: 'Mesero', pin: '2222', role: 'mesero' }
-],
-rooms: [{ id: 'salon-principal', name: 'Salón principal' }],
-products: [
-    { id: 1, name: 'Café Americano', category: 'Bebidas', price: 3.5, stock: 25 },
-    { id: 2, name: 'Capuccino', category: 'Bebidas', price: 4.5, stock: 18 },
-    { id: 3, name: 'Sandwich de pollo', category: 'Comida', price: 8.5, stock: 15 },
-    { id: 4, name: 'Hamburguesa', category: 'Comida', price: 9.75, stock: 12 },
-    { id: 5, name: 'Pasta al pesto', category: 'Comida', price: 11.5, stock: 10 },
-    { id: 6, name: 'Agua 500ml', category: 'Bebidas', price: 1.75, stock: 30 },
-    { id: 7, name: 'Refresco 600ml', category: 'Bebidas', price: 2.25, stock: 26 },
-    { id: 8, name: 'Galletas', category: 'Snacks', price: 2.5, stock: 20 }
-  ],
+  employees: [],
+  rooms: [{ id: 'salon-principal', name: 'Salón principal' }],
+  products: [],
   sales: [],
   companySettings: {},
   orders: [],
@@ -81,39 +67,30 @@ function ensureRestaurantState() {
 
 const currency = (value) => new Intl.NumberFormat('es-SV', { style: 'currency', currency: 'USD' }).format(value || 0);
 
-const DEFAULT_API_BASE = 'http://localhost:3000';
-const API_BASE = `${localStorage.getItem('pos_api_base') || DEFAULT_API_BASE}/api`;
+const API_BASE = getApiUrl('').replace(/\/$/, '');
 
-function getAuthHeaders(contentType = 'application/json') {
-  const token = localStorage.getItem('pos_token');
-  const base = {};
-  if (contentType) base['Content-Type'] = contentType;
-  if (token) base['Authorization'] = `Bearer ${token}`;
-  return base;
-}
 
 function deepClone(data) {
   return JSON.parse(JSON.stringify(data));
 }
 
 function loadState() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) {
-      return deepClone(DEFAULT_STATE);
-    }
-    const parsed = JSON.parse(saved);
-    const base = { ...deepClone(DEFAULT_STATE), ...parsed };
-    base.rooms = Array.isArray(parsed.rooms) && parsed.rooms.length > 0 ? parsed.rooms : deepClone(DEFAULT_STATE.rooms);
-    return base;
-  } catch (error) {
-    return deepClone(DEFAULT_STATE);
+  // Preserve legacy business records for manual reconciliation, without plaintext PINs/secrets.
+  const legacy=localStorage.getItem(STORAGE_KEY);
+  if (legacy) {
+    try {
+      const old=JSON.parse(legacy), archive={};
+      for (const key of ['sales','products','shift','tables','rooms','orders']) if(old[key]!==undefined)archive[key]=old[key];
+      archive.employees=(old.employees||[]).map(({id,name,role})=>({id,name,role}));
+      localStorage.setItem(`${STORAGE_KEY}:archive:${Date.now()}`,JSON.stringify(archive));
+      localStorage.removeItem(STORAGE_KEY);
+    } catch (_) { console.warn('No se pudo archivar la caché anterior; se conserva sin importar.'); }
   }
+  localStorage.removeItem('pos_token');
+  localStorage.removeItem('executive_pin_hash');
+  return deepClone(DEFAULT_STATE);
 }
-
-function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-}
+function saveState() { /* Server is authoritative; pending requests have their own journal. */ }
 
 function getCompanySettings() {
   return state.companySettings || {};
@@ -129,7 +106,7 @@ function canManageUserAccounts() {
 
 async function loadCompanySettings() {
   try {
-    const res = await fetch(`${API_BASE}/settings`);
+    const res = await posFetch(`${API_BASE}/settings`);
     if (!res.ok) return;
     const data = await res.json();
     const settings = data.settings || data;
@@ -184,7 +161,7 @@ function getEmployeeByPin(pin) {
 
 async function fetchOrdersFromServer() {
   try {
-    const res = await fetch(`${API_BASE}/orders`);
+    const res = await posFetch(`${API_BASE}/orders`);
     if (!res.ok) return;
     const data = await res.json();
     state.orders = data.orders || [];
@@ -198,79 +175,58 @@ async function fetchOrdersFromServer() {
 }
 
 // Realtime orders via Server-Sent Events
+let syncTimer = null;
+let syncSequence = 0;
+let lastSnapshot = '';
+async function syncFromServer() {
+  if (!currentEmployee) return;
+  const seq = ++syncSequence;
+  const userId = currentEmployee.id;
+  const data = await apiRequest('/sync');
+  if (seq !== syncSequence || !currentEmployee || currentEmployee.id !== userId) return;
+  const stamp=JSON.stringify([data.products,data.sales,data.shift,data.orders,data.user,data.rooms,data.tables]);
+  if (stamp===lastSnapshot) return;
+  lastSnapshot=stamp;
+  currentEmployee=data.user;
+  state.products=data.products;
+  state.sales=data.sales.map(s=>({id:s.id,employeeName:s.employee_name,paymentMethod:s.payment_method,total:s.total,subtotal:s.subtotal,tax:s.tax,items:s.items.map(i=>({...i,id:i.product_id})),createdAt:s.created_at,receivedAmount:s.received_amount,change:s.change_amount}));
+  state.shift=data.shift;
+  state.orders=data.orders;state.rooms=data.rooms;state.tables=data.tables;
+  const draftFields=Array.from(document.querySelectorAll('#module-reports input, #module-reports textarea, #module-reports select')).map(el=>({id:el.id,value:el.value,checked:el.checked}));
+  const focused=document.activeElement?.id;
+  const category=document.getElementById('category-filter')?.value;
+  renderCategoryFilter();
+  if(category && document.getElementById('category-filter')) document.getElementById('category-filter').value=category;
+  renderProducts();renderInventory();renderCashPanel();renderReports();
+  for(const field of draftFields){const el=document.getElementById(field.id);if(el){el.value=field.value;if(el.type==='checkbox')el.checked=field.checked;}}
+  if(focused) document.getElementById(focused)?.focus();
+  renderOrders();renderKitchenOrders();renderTables();renderDashboardSummary();updateHeader();renderNav();
+}
 function initOrderEventStream() {
-  try {
-    const url = `${API_BASE}/orders/stream`;
-    const es = new EventSource(url);
-    es.addEventListener('orders', (msg) => {
-      try {
-        const payload = JSON.parse(msg.data || '{}');
-        if (!payload || !payload.payload) return;
-        const p = payload.payload;
-        // event types: new_order, order_update
-        if (payload.event === 'new_order') {
-          // prepend new order
-          state.orders = [p, ...state.orders.filter((o) => o.id !== p.id)];
-        } else if (payload.event === 'order_update') {
-          state.orders = state.orders.map((o) => (o.id === p.id ? p : o));
-          if (!state.orders.find((o) => o.id === p.id)) state.orders.unshift(p);
-        }
-        renderOrders();
-        renderKitchenOrders();
-        renderTables();
-        saveState();
-      } catch (e) {
-        console.warn('SSE parse error', e.message);
-      }
-    });
-    es.onopen = () => console.log('Connected to orders stream');
-    es.onerror = (e) => console.warn('Orders stream error', e);
-  } catch (e) {
-    console.warn('Could not open orders stream', e.message);
-  }
+  stopSync();
+  syncTimer=setInterval(() => syncFromServer().catch(error => {
+    const badge=document.getElementById('shift-status');
+    if (badge) badge.textContent='Sin sincronización';
+    if (error.status===401) expireSession();
+  }), 3000);
 }
-function getAuthHeaders(contentType = 'application/json') {
-  const token = localStorage.getItem('pos_token');
-  const headers = {};
-  if (contentType) headers['Content-Type'] = contentType;
-  if (token) headers['Authorization'] = 'Bearer ' + token;
-  return headers;
+function stopSync() { clearInterval(syncTimer);syncTimer=null;++syncSequence;lastSnapshot=''; }
+function expireSession() {
+  stopSync();currentEmployee=null;sessionStorage.removeItem('pos_token');showLogin();
+  const error=document.getElementById('login-error');
+  error.textContent='La sesión venció. Inicia sesión nuevamente.';error.classList.remove('hidden');
 }
 
-function addNewRoom() {
-  const roomName = prompt('Nombre del salón:', 'Salón nuevo');
-  if (!roomName || !roomName.trim()) return;
-
-  const newRoom = {
-    id: `salon-${Date.now()}`,
-    name: roomName.trim()
-  };
-
-  state.rooms.push(newRoom);
-  saveState();
-  renderTables();
+async function addNewRoom() {
+  const name=prompt('Nombre del salón:');if(!name)return;
+  try { await apiRequest('/rooms',{method:'POST',body:JSON.stringify({name})});await syncFromServer(); }
+  catch(error){alert(error.message);}
 }
-
-function addTableToCurrentRoom() {
-  const roomSelect = document.getElementById('table-room-filter');
-  const roomId = roomSelect ? roomSelect.value : (state.rooms[0] || {}).id;
-  if (!roomId) return;
-
-  const nextNumber = (state.tables || []).filter((table) => table.room === roomId).length + 1;
-  const tableName = prompt('Nombre o número de la nueva mesa:', `Mesa ${nextNumber}`) || `Mesa ${nextNumber}`;
-
-  state.tables.push({
-    id: Date.now(),
-    room: roomId,
-    name: tableName,
-    status: 'libre',
-    waiter: '',
-    customer: '',
-    notes: ''
-  });
-
-  saveState();
-  renderTables();
+async function addTableToCurrentRoom() {
+  const room=document.getElementById('table-room-filter').value;
+  const name=prompt('Nombre de la mesa:');if(!name)return;
+  try { await apiRequest('/tables',{method:'POST',body:JSON.stringify({room,name})});await syncFromServer(); }
+  catch(error){alert(error.message);}
 }
 
 function renderTables() {
@@ -282,7 +238,7 @@ function renderTables() {
   const selectedRoom = roomFilter ? roomFilter.value : (rooms[0] || {}).id;
 
   if (roomFilter) {
-    roomFilter.innerHTML = rooms.map((room) => `<option value="${room.id}">${room.name}</option>`).join('');
+    roomFilter.innerHTML = rooms.map((room) => `<option value="${room.id}">${escapeHtml(room.name)}</option>`).join('');
     if (!rooms.some((room) => room.id === selectedRoom) && rooms.length > 0) {
      roomFilter.value = rooms[0].id;
     } else if (rooms.length > 0) {
@@ -296,11 +252,11 @@ function renderTables() {
   grid.innerHTML = visibleTables.map((table) => `
     <div class="table-card ${table.status}">
       <div class="table-header">
-        <strong>${table.name}</strong>
+        <strong>${escapeHtml(table.name)}</strong>
         <span class="table-badge ${table.status}">${table.status === 'libre' ? 'Libre' : table.status === 'ocupada' ? 'Ocupada' : table.status === 'pedido' ? 'Pedido' : 'Lista'}</span>
       </div>
-      <p>${table.customer || 'Sin cliente'}</p>
-      <small>${table.waiter || 'Sin mesero'}</small>
+      <p>${escapeHtml(table.customer || 'Sin cliente')}</p>
+      <small>${escapeHtml(table.waiter || 'Sin mesero')}</small>
       <div class="table-actions">
         <button class="ghost-btn small" data-table-action="ocupada" data-table-id="${table.id}">Ocupar</button>
         <button class="primary-btn small" data-table-action="pedido" data-table-id="${table.id}">Pedido</button>
@@ -310,18 +266,10 @@ function renderTables() {
   `).join('');
 
   grid.querySelectorAll('[data-table-action]').forEach((button) => {
-    button.addEventListener('click', () => {
-     const tableId = Number(button.dataset.tableId);
-     const newStatus = button.dataset.tableAction;
-     const table = (state.tables || []).find((item) => item.id === tableId);
-     if (!table) return;
-     table.status = newStatus;
-     if (newStatus === 'libre') {
-       table.customer = '';
-       table.waiter = '';
-     }
-     saveState();
-     renderTables();
+    button.addEventListener('click', async () => {
+      const table=state.tables.find(t=>t.id===Number(button.dataset.tableId));if(!table)return;
+      try { await apiRequest(`/tables/${table.id}`,{method:'PATCH',body:JSON.stringify({status:button.dataset.tableAction,expectedStatus:table.status})});await syncFromServer(); }
+      catch(error){alert(error.message);await syncFromServer().catch(()=>{});}
     });
   });
 }
@@ -335,15 +283,15 @@ function renderOrders() {
   }
 
   list.innerHTML = state.orders.map((order) => {
-    const items = (order.items || []).map((item) => `${item.name} x ${item.qty}`).join(', ');
+    const items = (order.items || []).map((item) => `${escapeHtml(item.name)} x ${item.qty}`).join(', ');
     return `
       <div class="order-card">
         <div class="order-meta">
           <strong>Orden #${order.id}</strong>
           <span class="status-pill ${order.status}">${order.status}</span>
         </div>
-        <p><b>Mesa:</b> ${order.table_number || 'Mostrador'}</p>
-        <p><b>Mesero:</b> ${order.employee_name || 'Sin asignar'}</p>
+        <p><b>Mesa:</b> ${escapeHtml(order.table_number || 'Mostrador')}</p>
+        <p><b>Mesero:</b> ${escapeHtml(order.employee_name || 'Sin asignar')}</p>
         <p><b>Productos:</b> ${items || 'Sin productos'}</p>
         <p><b>Total:</b> ${currency(order.total || 0)}</p>
         <button class="ghost-btn small" data-order-id="${order.id}" data-order-status="ready">Marcar lista</button>
@@ -373,15 +321,15 @@ function renderKitchenOrders() {
   }
 
   list.innerHTML = kitchenOrders.map((order) => {
-    const items = (order.items || []).map((item) => `${item.name} x ${item.qty}`).join(', ');
+    const items = (order.items || []).map((item) => `${escapeHtml(item.name)} x ${item.qty}`).join(', ');
     return `
       <div class="order-card" id="kitchen-order-${order.id}">
         <div class="order-meta">
           <strong>Orden #${order.id}</strong>
           <span class="status-pill ${order.status}">${order.status}</span>
         </div>
-        <p><b>Mesa:</b> ${order.table_number || 'Mostrador'}</p>
-        <p><b>Cliente:</b> ${order.customer_name || 'Cliente'}</p>
+        <p><b>Mesa:</b> ${escapeHtml(order.table_number || 'Mostrador')}</p>
+        <p><b>Cliente:</b> ${escapeHtml(order.customer_name || 'Cliente')}</p>
         <p><b>Productos:</b> ${items || 'Sin productos'}</p>
         <div class="order-actions">
           <button class="primary-btn small" data-kitchen-id="${order.id}" data-kitchen-status="preparing">Preparando</button>
@@ -415,7 +363,7 @@ function renderKitchenOrders() {
 
 async function updateOrderStatus(orderId, status) {
   try {
-    const res = await fetch(`${API_BASE}/orders/${orderId}/status`, {
+    const res = await posFetch(`${API_BASE}/orders/${orderId}/status`, {
       method: 'PATCH',
       headers: getAuthHeaders(),
       body: JSON.stringify({ status })
@@ -428,6 +376,7 @@ async function updateOrderStatus(orderId, status) {
 }
 
 async function sendCurrentCartToKitchen() {
+  if (saleInFlight || pendingSale) return alert('Primero confirma la venta pendiente.');
   if (!currentEmployee) {
     alert('Debes iniciar sesión.');
     return;
@@ -440,16 +389,17 @@ async function sendCurrentCartToKitchen() {
   const customerName = (document.getElementById('billing-customer-name')?.value || document.getElementById('customer-name')?.value || '').trim() || 'Cliente';
   const notes = (document.getElementById('billing-customer-notes')?.value || document.getElementById('customer-address')?.value || '').trim() || '';
 
-  const assignedTable = reserveTableForOrder('', customerName);
+  const assignedTable = getAvailableTableForOrder();
   const tableNumber = assignedTable ? assignedTable.name : 'Mostrador';
 
   try {
-    const res = await fetch(`${API_BASE}/orders`, {
+    const res = await posFetch(`${API_BASE}/orders`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({
         employeeName: currentEmployee.name,
         tableNumber,
+        tableId: assignedTable?.id || null,
         customerName,
         notes,
         items: cart.map((item) => ({ id: item.id, name: item.name, price: item.price, qty: item.qty }))
@@ -463,7 +413,7 @@ async function sendCurrentCartToKitchen() {
     const kitchenItems = cart.map((item) => ({ name: item.name, qty: item.qty }));
     cart = [];
     renderCart();
-    await fetchOrdersFromServer();
+    await syncFromServer();
     printKitchenTicket({
       tableNumber,
       customerName,
@@ -507,19 +457,19 @@ function updateHeader() {
 function renderEmployeeOptions() {
   const select = document.getElementById('employee-select');
   select.innerHTML = state.employees
-    .map((employee) => `<option value="${employee.id}">${employee.name} - ${employee.role}</option>`)
+    .map((employee) => `<option value="${employee.id}">${escapeHtml(employee.name)} - ${employee.role}</option>`)
     .join('');
 }
 
 async function loadCustomers() {
   try {
-    const res = await fetch(`${API_BASE}/customers`, { headers: getAuthHeaders(null) });
+    const res = await posFetch(`${API_BASE}/customers`, { headers: getAuthHeaders(null) });
     if (!res.ok) return;
     const data = await res.json();
     const customers = data.customers || [];
     const select = document.getElementById('customer-select');
     if (!select) return;
-    select.innerHTML = '<option value="">Cliente general / consumidor final</option>' + customers.map((customer) => `<option value="${customer.id}">${customer.full_name} - ${customer.nit || 'Sin NIT'}</option>`).join('');
+    select.innerHTML = '<option value="">Cliente general / consumidor final</option>' + customers.map((customer) => `<option value="${customer.id}">${escapeHtml(customer.full_name)} - ${escapeHtml(customer.nit || 'Sin NIT')}</option>`).join('');
   } catch (error) {
     console.warn('No se pudieron cargar clientes:', error.message);
   }
@@ -602,7 +552,7 @@ async function saveCustomerFromForm() {
     const customerId = document.getElementById('customer-select')?.value;
     const method = customerId ? 'PUT' : 'POST';
     const url = customerId ? `${API_BASE}/customers/${customerId}` : `${API_BASE}/customers`;
-    const res = await fetch(url, {
+    const res = await posFetch(url, {
       method,
       headers: getAuthHeaders(),
       body: JSON.stringify(form)
@@ -624,7 +574,7 @@ async function saveCustomerFromForm() {
       if (select) {
         const optionExists = Array.from(select.options).some((option) => Number(option.value) === Number(customer.id));
         if (!optionExists) {
-          const option = new Option(`${customer.full_name} - ${customer.nit || 'Sin NIT'}`, customer.id);
+          const option = new Option(`${escapeHtml(customer.full_name)} - ${escapeHtml(customer.nit || 'Sin NIT')}`, customer.id);
           select.add(option);
         }
         select.value = String(customer.id);
@@ -705,12 +655,6 @@ function confirmBillingAction() {
     return;
   }
 
-  const customerName = (document.getElementById('billing-customer-name')?.value || '').trim() || 'Cliente';
-  const reservedTable = reserveTableForOrder('', customerName);
-  if (reservedTable) {
-    document.getElementById('billing-customer-name') && (document.getElementById('billing-customer-name').value = customerName);
-  }
-
   processSale();
 }
 
@@ -730,14 +674,14 @@ function printWindow(content, title) {
 }
 
 function printKitchenTicket(order) {
-  const itemsHtml = (order.items || []).map((item) => `<tr><td>${item.name}</td><td>x${item.qty}</td></tr>`).join('');
+  const itemsHtml = (order.items || []).map((item) => `<tr><td>${escapeHtml(item.name)}</td><td>x${item.qty}</td></tr>`).join('');
   const content = `
     <h2>Orden de cocina</h2>
-    <p><strong>Mesa:</strong> ${order.tableNumber || 'Mostrador'}</p>
-    <p><strong>Cliente:</strong> ${order.customerName || 'Cliente'}</p>
-    <p><strong>Empleado:</strong> ${order.employeeName || 'Sistema'}</p>
+    <p><strong>Mesa:</strong> ${escapeHtml(order.tableNumber || 'Mostrador')}</p>
+    <p><strong>Cliente:</strong> ${escapeHtml(order.customerName || 'Cliente')}</p>
+    <p><strong>Empleado:</strong> ${escapeHtml(order.employeeName || 'Sistema')}</p>
     <table><thead><tr><th>Producto</th><th>Cant.</th></tr></thead><tbody>${itemsHtml || '<tr><td colspan="2">Sin productos</td></tr>'}</tbody></table>
-    ${order.notes ? `<p><strong>Nota:</strong> ${order.notes}</p>` : ''}
+    ${order.notes ? `<p><strong>Nota:</strong> ${escapeHtml(order.notes)}</p>` : ''}
     <p><strong>Fecha:</strong> ${new Date().toLocaleString()}</p>
   `;
   printWindow(content, 'Orden de cocina');
@@ -820,24 +764,6 @@ function getAvailableTableForOrder(preferredName = '') {
   return fallback;
 }
 
-function reserveTableForOrder(tableName, customerName) {
-  const normalizedName = String(tableName || '').trim();
-  const matchingTable = (state.tables || []).find((table) => {
-    if (normalizedName) {
-      return table.name === normalizedName || String(table.id) === normalizedName || table.id === Number(normalizedName);
-    }
-    return table.status === 'libre';
-  }) || getAvailableTableForOrder(normalizedName || 'Mesa 1');
-
-  if (!matchingTable) return null;
-
-  matchingTable.status = 'pedido';
-  if (customerName) matchingTable.customer = customerName;
-  saveState();
-  renderTables();
-  return matchingTable;
-}
-
 function renderDashboardSummary() {
   const dashboard = document.getElementById('dashboard-summary');
   if (!dashboard) return;
@@ -868,6 +794,9 @@ function renderDashboardSummary() {
 }
 
 function setActiveModule(moduleId) {
+  if (!currentEmployee) return;
+  if (moduleId==='settings' && !canAccessExecutivePanel()) return;
+  if (moduleId==='users' && !canManageUserAccounts()) return;
   activeModule = moduleId;
 
   document.querySelectorAll('.module').forEach((module) => {
@@ -882,66 +811,37 @@ function setActiveModule(moduleId) {
 }
 
 async function loginUser() {
-  const employeeId = Number(document.getElementById('employee-select').value);
-  const pin = document.getElementById('pin-input').value;
-  const errorText = document.getElementById('login-error');
-
-  // Try server auth first
+  const button=document.getElementById('login-btn');
+  if (button.disabled) return;
+  button.disabled=true;
+  const errorText=document.getElementById('login-error');
+  sessionStorage.removeItem('pos_token');
   try {
-    const res = await fetch(API_BASE + '/auth/login', {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ id: employeeId, pin })
-    });
-    if (res && res.ok) {
-      const data = await res.json();
-      currentEmployee = { id: data.user.id, name: data.user.name, role: data.user.role };
-      if (data.token) localStorage.setItem('pos_token', data.token);
-    }
-  } catch (err) {
-    // ignore server error, fallback to local
-  }
-
-  if (!currentEmployee) {
-    const employee = state.employees.find((item) => item.id === employeeId && item.pin === String(pin).trim());
-    if (!employee) {
-      errorText.classList.remove('hidden');
-      return;
-    }
-    currentEmployee = employee;
-  }
-
-  errorText.classList.add('hidden');
-  document.getElementById('pin-input').value = '';
-
-  const adminHero = document.getElementById('admin-hero');
-  if (adminHero) adminHero.classList.toggle('hidden', !canAccessExecutivePanel());
-
-  updateHeader();
-  renderNav();
-  renderProducts();
-  renderInventory();
-  renderCashPanel();
-  renderReports();
-  renderDashboardSummary();
-  const defaultModule = currentEmployee.role === 'cocina' ? 'kitchen' : currentEmployee.role === 'mesero' ? 'tables' : 'pos';
-  setActiveModule(defaultModule);
-  showApp();
-  await loadCustomers();
-  await loadCompanySettings();
-  saveState();
-  // start realtime SSE stream for orders after login
-  if (typeof initOrderEventStream === 'function') initOrderEventStream();
+    const data=await apiRequest('/auth/login',{method:'POST',body:JSON.stringify({id:Number(document.getElementById('employee-select').value),pin:document.getElementById('pin-input').value})});
+    if (!data.user || !data.token) throw new Error('Respuesta de acceso inválida.');
+    currentEmployee=data.user;
+    sessionStorage.setItem('pos_token',data.token);
+    await loadCompanySettings();
+    await syncFromServer();
+    await loadCustomers();
+    await fetchUsersFromServer();
+    restorePendingSale();
+    errorText.classList.add('hidden');document.getElementById('pin-input').value='';
+    document.getElementById('admin-hero')?.classList.toggle('hidden',!canAccessExecutivePanel());
+    setActiveModule(currentEmployee.role==='cocina'?'kitchen':currentEmployee.role==='mesero'?'tables':currentEmployee.role==='contador'?'reports':'pos');
+    renderCart();showApp();initOrderEventStream();
+  } catch(error) {
+    currentEmployee=null;sessionStorage.removeItem('pos_token');
+    errorText.textContent=error.status===401?'Credenciales inválidas.':error.message || 'No hay conexión con el servidor.';
+    errorText.classList.remove('hidden');
+  } finally { button.disabled=false; }
 }
-
-function logoutUser() {
-  currentEmployee = null;
-  cart = [];
-  localStorage.removeItem('pos_token');
-  updateHeader();
-  renderCart();
-  showLogin();
-  saveState();
+async function logoutUser() {
+  if (saleInFlight) return alert('Espera la confirmación de la venta.');
+  try { await apiRequest('/auth/logout',{method:'POST',body:'{}'}); }
+  catch(error) { if (error.status!==401) return alert('No se pudo cerrar la sesión en el servidor. Reintenta con conexión.'); }
+  stopSync();currentEmployee=null;cart=[];pendingSale=null;sessionStorage.removeItem('pos_token');
+  state=deepClone(DEFAULT_STATE);renderCart();showLogin();await fetchUsersFromServer();
 }
 
 function renderCategoryFilter() {
@@ -949,7 +849,7 @@ function renderCategoryFilter() {
   const categories = [...new Set(state.products.map((product) => product.category))];
 
   filter.innerHTML = '<option value="all">Todas</option>' + categories.map((category) => `
-    <option value="${category}">${category}</option>
+    <option value="${escapeHtml(category)}">${escapeHtml(category)}</option>
   `).join('');
 }
 
@@ -971,8 +871,8 @@ function renderProducts() {
 
   grid.innerHTML = filteredProducts.map((product) => `
     <article class="product-card" data-product-id="${product.id}">
-      <div class="product-tag">${product.category}</div>
-      <h4>${product.name}</h4>
+      <div class="product-tag">${escapeHtml(product.category)}</div>
+      <h4>${escapeHtml(product.name)}</h4>
       <p class="product-price">${currency(product.price)}</p>
       <small>Stock: ${product.stock}</small>
       <button type="button" class="small primary-btn add-item-btn" data-product-id="${product.id}">Agregar</button>
@@ -985,6 +885,7 @@ function renderProducts() {
 }
 
 function addToCart(productId) {
+  if (saleInFlight || pendingSale) return alert('Primero confirma la venta pendiente.');
   const product = state.products.find((item) => item.id === productId);
 
   if (!product) return;
@@ -1015,12 +916,9 @@ function addToCart(productId) {
 }
 
 function getCartTotals() {
-  const subtotal = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
-  const discount = 0;
-  const tax = subtotal * 0.13;
-  const total = subtotal + tax - discount;
-
-  return { subtotal, discount, tax, total };
+  const subtotalCents=cart.reduce((sum,item)=>sum+Math.round((item.price+Number.EPSILON)*100)*item.qty,0);
+  const taxCents=Math.round(subtotalCents*Number(state.companySettings.iva_rate ?? 0.13));
+  return { subtotal:subtotalCents/100,discount:0,tax:taxCents/100,total:(subtotalCents+taxCents)/100 };
 }
 
 function renderCart() {
@@ -1032,7 +930,7 @@ function renderCart() {
     cartList.innerHTML = cart.map((item, index) => `
       <li class="cart-item">
         <div class="cart-details">
-          <strong>${item.name}</strong>
+          <strong>${escapeHtml(item.name)}</strong>
           <span>${currency(item.price)} c/u</span>
         </div>
         <div class="cart-controls">
@@ -1067,6 +965,7 @@ function renderCart() {
 }
 
 function updateCartItemQuantity(index, action) {
+  if (saleInFlight || pendingSale) return alert('Primero confirma la venta pendiente.');
   const item = cart[index];
   if (!item) return;
 
@@ -1088,288 +987,66 @@ function updateCartItemQuantity(index, action) {
 }
 
 function removeCartItem(index) {
+  if (saleInFlight || pendingSale) return alert('Primero confirma la venta pendiente.');
   cart.splice(index, 1);
   renderCart();
 }
 
 function clearCart() {
+  if (saleInFlight || pendingSale) return alert('Primero confirma la venta pendiente.');
   cart = [];
   const cashReceived = document.getElementById('billing-cash-received') || document.getElementById('cash-received');
   if (cashReceived) cashReceived.value = '';
   renderCart();
 }
 
-function processSale() {
-  if (!currentEmployee) {
-    alert('Debe iniciar sesión.');
-    return;
+let saleInFlight=false;
+let pendingSale=null;
+function pendingSaleKey() { return `pos_pending_sale:${API_BASE}:${currentEmployee.id}`; }
+function restorePendingSale() {
+  try { pendingSale=JSON.parse(localStorage.getItem(pendingSaleKey()) || 'null'); }
+  catch (_) { pendingSale=null; }
+  if (pendingSale) {
+    cart=pendingSale.payload.items.map(i=>({...i}));
+    alert('Existe una venta sin confirmación. Pulsa Cobrar venta para consultar/reintentar la misma operación.');
   }
-
-  if (!state.shift.isOpen) {
-    alert('Debe abrir el turno de caja antes de vender.');
-    return;
-  }
-
-  if (cart.length === 0) {
-    alert('No hay productos en el carrito.');
-    return;
-  }
-
-  const totals = getCartTotals();
-  const paymentMethod = document.getElementById('billing-payment-method')?.value || document.getElementById('payment-method')?.value || 'efectivo';
-  const receivedAmount = Number((document.getElementById('billing-cash-received')?.value || document.getElementById('cash-received')?.value || 0));
-  const customerData = getCustomerPayloadFromForm();
-
-  if (paymentMethod === 'efectivo' && receivedAmount < totals.total) {
-    alert('El monto recibido debe ser mayor o igual al total de la venta.');
-    return;
-  }
-
-  const salePayload = {
-    employeeName: currentEmployee.name,
-    paymentMethod,
-    total: Number(totals.total.toFixed(2)),
-    subtotal: Number(totals.subtotal.toFixed(2)),
-    tax: Number(totals.tax.toFixed(2)),
-    items: cart.map((item) => ({ id: item.id, name: item.name, price: item.price, qty: item.qty })),
-    createdAt: new Date().toISOString(),
-    receivedAmount: paymentMethod === 'efectivo' ? receivedAmount : totals.total,
-    change: paymentMethod === 'efectivo' ? Number((receivedAmount - totals.total).toFixed(2)) : 0,
-    customerEmail: customerData.customerEmail,
-    customerName: customerData.customerName,
-    customerNit: customerData.customerNit,
-    customerPhone: customerData.customerPhone,
-    customerAddress: customerData.customerAddress,
-    customerId: customerData.customerId,
-    customer: customerData.customer,
-    tipo_receptor: customerData.tipo_receptor,
-    documentType: customerData.documentType,
-    sandbox: (state.companySettings && state.companySettings.hacienda_mode === 'sandbox') || true
-  };
-
-  fetch(`${API_BASE}/sales`, {
-    method: 'POST',
-    headers: getAuthHeaders(),
-    body: JSON.stringify(salePayload)
-  })
-    .then((res) => {
-      if (!res.ok) throw new Error('server error');
-      return res.json();
-    })
-    .then(async (data) => {
-      if (data && data.sale) {
-        const saved = data.sale;
-        saved.items.forEach((it) => {
-          const product = state.products.find((p) => p.id === it.product_id || p.id === it.id);
-          if (product) product.stock = Math.max(0, product.stock - it.qty);
-        });
-
-        state.sales.unshift({
-          id: saved.id,
-          employeeName: saved.employee_name,
-          paymentMethod: saved.payment_method,
-          total: Number(saved.total),
-          subtotal: Number(saved.subtotal),
-          tax: Number(saved.tax),
-          items: saved.items.map((it) => ({ id: it.product_id || it.id, name: it.name, price: it.price, qty: it.qty })),
-          createdAt: saved.created_at,
-          receivedAmount: saved.received_amount,
-          change: saved.change_amount
-        });
-
-        if (paymentMethod === 'efectivo') {
-          state.shift.cashSales += Number(saved.total);
-          state.shift.currentCash += Number(saved.total);
-        }
-        if (paymentMethod === 'tarjeta') state.shift.cardSales += Number(saved.total);
-        if (paymentMethod === 'transferencia') state.shift.transferSales += Number(saved.total);
-
-        saveState();
-        renderProducts();
-        renderInventory();
-        renderCashPanel();
-        renderReports();
-        clearCart();
-
-        if (customerData.customerEmail) {
-          try {
-            await fetch(`${API_BASE}/invoices/${saved.id}/email`, {
-              method: 'POST',
-              headers: getAuthHeaders(),
-              body: JSON.stringify({ customerEmail: customerData.customerEmail })
-            });
-          } catch (error) {
-            console.warn('No se pudo enviar correo de factura:', error.message);
-          }
-        }
-
-        const pdfUrl = `${API_BASE}/invoices/${saved.id}/pdf`;
-        const printFrame = window.open(pdfUrl, '_blank');
-        if (printFrame) {
-          printFrame.focus();
-          setTimeout(() => {
-            try {
-              printFrame.print();
-            } catch (error) {
-              console.warn('No se pudo imprimir la factura automáticamente:', error.message);
-            }
-          }, 600);
-        }
-
-        alert(`Venta registrada y sincronizada. Total cobrado: ${currency(saved.total)}. Factura: ${data.invoiceNumber || ''}`);
-      } else {
-        throw new Error('Respuesta incorrecta del servidor');
-      }
-    })
-    .catch((err) => {
-      const sale = {
-        id: Date.now(),
-        employeeName: currentEmployee.name,
-        paymentMethod,
-        total: Number(totals.total.toFixed(2)),
-        subtotal: Number(totals.subtotal.toFixed(2)),
-        tax: Number(totals.tax.toFixed(2)),
-        items: cart.map((item) => ({ ...item })),
-        createdAt: new Date().toISOString(),
-        receivedAmount: paymentMethod === 'efectivo' ? receivedAmount : totals.total,
-        change: paymentMethod === 'efectivo' ? Number((receivedAmount - totals.total).toFixed(2)) : 0
-      };
-
-      state.sales.unshift(sale);
-      cart.forEach((item) => {
-        const product = state.products.find((entry) => entry.id === item.id);
-        if (!product) return;
-        product.stock = Math.max(0, product.stock - item.qty);
-      });
-
-      if (paymentMethod === 'efectivo') {
-        state.shift.cashSales += sale.total;
-        state.shift.currentCash += sale.total;
-      }
-      if (paymentMethod === 'tarjeta') state.shift.cardSales += sale.total;
-      if (paymentMethod === 'transferencia') state.shift.transferSales += sale.total;
-
-      saveState();
-      renderProducts();
-      renderInventory();
-      renderCashPanel();
-      renderReports();
-      clearCart();
-
-      alert(`Venta registrada (local). Total cobrado: ${currency(sale.total)}`);
-    });
 }
-
-async function performTestSale() {
-  if (!currentEmployee) {
-    alert('Debe iniciar sesión para realizar la venta de prueba.');
-    return;
+async function processSale() {
+  if (saleInFlight) return;
+  if (!currentEmployee) return alert('Debes iniciar sesión.');
+  if (!pendingSale && (!state.shift.isOpen || !cart.length)) return alert('Abre la caja y agrega productos.');
+  const totals=getCartTotals();
+  const paymentMethod=document.getElementById('billing-payment-method')?.value || 'efectivo';
+  const receivedAmount=Number(document.getElementById('billing-cash-received')?.value || 0);
+  if (!pendingSale && paymentMethod==='efectivo' && (!Number.isFinite(receivedAmount) || receivedAmount<totals.total)) return alert('Efectivo insuficiente o inválido.');
+  if (!pendingSale && localStorage.getItem(pendingSaleKey())) { restorePendingSale();renderCart();return; }
+  if (!pendingSale) {
+    pendingSale={ key:newRequestId(),payload:{...getCustomerPayloadFromForm(),...totals,paymentMethod,receivedAmount,
+      items:cart.map(i=>({id:i.id,name:i.name,price:i.price,qty:i.qty}))} };
+    try { localStorage.setItem(pendingSaleKey(),JSON.stringify(pendingSale)); }
+    catch (_) { pendingSale=null;return alert('No se pudo guardar el identificador de venta. No se envió el cobro.'); }
   }
-
-  if (!state.shift.isOpen) {
-    const ok = confirm('No hay turno abierto. ¿Deseas abrir la caja con $0 para la prueba?');
-    if (!ok) return;
-    openShift();
-  }
-
-  const product = state.products.length > 0 ? state.products[0] : { id: Date.now(), name: 'Producto prueba', price: 1.0, stock: 100 };
-  const qty = 1;
-  const subtotal = Number((product.price * qty).toFixed(2));
-  const tax = Number((subtotal * 0.13).toFixed(2));
-  const total = Number((subtotal + tax).toFixed(2));
-
-  const payload = {
-    employeeName: currentEmployee.name,
-    paymentMethod: 'efectivo',
-    subtotal,
-    tax,
-    total,
-    items: [{ id: product.id, name: product.name, price: product.price, qty }],
-    createdAt: new Date().toISOString(),
-    receivedAmount: total,
-    change: 0
-  };
-
+  saleInFlight=true;
   try {
-    const res = await fetch(API_BASE + '/sales', {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(payload)
-    });
-
-    if (!res.ok) throw new Error('No se pudo sincronizar con el servidor');
-    const data = await res.json();
-
-    if (data && data.sale) {
-      const saved = data.sale;
-      // actualizar stock local
-      saved.items.forEach((it) => {
-        const pid = it.product_id || it.id;
-        const p = state.products.find((x) => x.id === pid);
-        if (p) p.stock = Math.max(0, p.stock - it.qty);
-      });
-
-      state.sales.unshift({
-        id: saved.id,
-        employeeName: saved.employee_name,
-        paymentMethod: saved.payment_method,
-        total: Number(saved.total),
-        subtotal: Number(saved.subtotal),
-        tax: Number(saved.tax),
-        items: saved.items.map((it) => ({ id: it.product_id || it.id, name: it.name, price: it.price, qty: it.qty })),
-        createdAt: saved.created_at,
-        receivedAmount: saved.received_amount,
-        change: saved.change_amount
-      });
-
-      if (payload.paymentMethod === 'efectivo') {
-        state.shift.cashSales += Number(saved.total);
-        state.shift.currentCash += Number(saved.total);
-      }
-
-      saveState();
-      renderProducts();
-      renderInventory();
-      renderCashPanel();
-      renderReports();
-
-      alert(`Venta de prueba sincronizada. Total: ${currency(saved.total)}. Factura: ${data.invoiceNumber || ''}`);
-      if (data.sale && data.sale.id) {
-        window.open(API_BASE + '/invoices/' + data.sale.id + '/pdf', '_blank');
-      }
-      return;
-    }
-
-    throw new Error('Respuesta inválida del servidor');
-  } catch (err) {
-    // fallback local
-    const localSale = {
-      id: Date.now(),
-      employeeName: currentEmployee.name,
-      paymentMethod: 'efectivo',
-      total,
-      subtotal,
-      tax,
-      items: [{ id: product.id, name: product.name, price: product.price, qty }],
-      createdAt: new Date().toISOString(),
-      receivedAmount: total,
-      change: 0
-    };
-
-    state.sales.unshift(localSale);
-    const pLocal = state.products.find((x) => x.id === product.id);
-    if (pLocal) pLocal.stock = Math.max(0, pLocal.stock - qty);
-    state.shift.cashSales += localSale.total;
-    state.shift.currentCash += localSale.total;
-
-    saveState();
-    renderProducts();
-    renderInventory();
-    renderCashPanel();
-    renderReports();
-
-    alert('Venta de prueba registrada en modo local (offline).');
-  }
+    const data=await apiRequest('/sales',{method:'POST',headers:{'Idempotency-Key':pendingSale.key},body:JSON.stringify(pendingSale.payload)});
+    if (!data.sale?.id) throw new Error('No se recibió confirmación de la venta.');
+    // Mark committed before rendering or requesting PDFs. Those failures must never create a second sale.
+    localStorage.removeItem(pendingSaleKey());pendingSale=null;cart=[];renderCart();
+    await syncFromServer().catch(()=>alert('Venta confirmada. Actualiza para consultar el saldo y las existencias.'));
+    window.open(getApiUrl(`/invoices/${data.sale.id}/pdf`),'_blank','noopener');
+    alert(`Venta confirmada #${data.sale.id}. Total: ${currency(data.sale.total)}${data.replayed?' (operación recuperada, sin duplicar)':''}.`);
+  } catch(error) {
+    if (pendingSale && error.status>=400 && error.status<500 && !pendingSale.uncertain) {
+      localStorage.removeItem(pendingSaleKey());pendingSale=null;
+      await syncFromServer().catch(()=>{});
+      cart=cart.flatMap(i=>{const p=state.products.find(p=>p.id===i.id);return p&&p.stock>0?[{...i,name:p.name,price:p.price,qty:Math.min(i.qty,p.stock)}]:[];});renderCart();
+      alert('Venta rechazada: '+error.message);
+    } else if (pendingSale) {
+      pendingSale.uncertain=true;
+      localStorage.setItem(pendingSaleKey(),JSON.stringify(pendingSale));
+      alert('No se pudo confirmar el resultado. Conservamos la operación; pulsa Cobrar venta para reintentar sin duplicarla.');
+    } else { alert('La venta fue confirmada, pero falló una acción posterior: '+error.message); }
+  } finally { saleInFlight=false; }
 }
 
 function renderInventory() {
@@ -1377,8 +1054,8 @@ function renderInventory() {
 
   tableBody.innerHTML = state.products.map((product) => `
     <tr>
-      <td>${product.name}</td>
-      <td>${product.category}</td>
+      <td>${escapeHtml(product.name)}</td>
+      <td>${escapeHtml(product.category)}</td>
       <td>${currency(product.price)}</td>
       <td>${product.stock}</td>
       <td>
@@ -1397,6 +1074,7 @@ function renderInventory() {
   });
 }
 
+let productEditStock=null;
 function openProductForm(productId = null) {
   const formPanel = document.getElementById('product-form-panel');
   const form = document.getElementById('product-form');
@@ -1414,6 +1092,7 @@ function openProductForm(productId = null) {
     document.getElementById('product-category').value = product.category;
     document.getElementById('product-price').value = product.price;
     document.getElementById('product-stock').value = product.stock;
+    productEditStock=product.stock;
     formTitle.textContent = 'Editar producto';
   } else {
     document.getElementById('product-id').value = '';
@@ -1426,92 +1105,31 @@ function closeProductForm() {
   document.getElementById('product-form').reset();
 }
 
-function deleteProduct(productId) {
-  const product = state.products.find((item) => item.id === productId);
-  if (!product) return;
-
-  const confirmed = window.confirm(`¿Deseas eliminar ${product.name}?`);
-  if (!confirmed) return;
-
-  state.products = state.products.filter((item) => item.id !== productId);
-  saveState();
-  renderProducts();
-  renderInventory();
-  renderCategoryFilter();
+async function deleteProduct(productId) {
+  if (!confirm('¿Eliminar este producto del catálogo?')) return;
+  try { await apiRequest(`/products/${productId}`,{method:'DELETE'});await syncFromServer(); }
+  catch(error) { alert(error.message); }
 }
-
-function handleProductSubmit(event) {
+async function handleProductSubmit(event) {
   event.preventDefault();
-
-  const id = document.getElementById('product-id').value ? Number(document.getElementById('product-id').value) : Date.now();
-  const product = {
-    id,
-    name: document.getElementById('product-name').value.trim(),
-    category: document.getElementById('product-category').value.trim(),
-    price: Number(document.getElementById('product-price').value),
-    stock: Number(document.getElementById('product-stock').value)
-  };
-
-  if (!product.name || !product.category || Number.isNaN(product.price) || Number.isNaN(product.stock)) {
-    alert('Completa todos los campos antes de guardar.');
-    return;
-  }
-
-  const existingIndex = state.products.findIndex((item) => item.id === id);
-
-  if (existingIndex >= 0) {
-    state.products[existingIndex] = product;
-  } else {
-    state.products.push(product);
-  }
-
-  saveState();
-  renderProducts();
-  renderInventory();
-  renderCategoryFilter();
-  closeProductForm();
+  const id=Number(document.getElementById('product-id').value) || null;
+  const payload={ name:document.getElementById('product-name').value.trim(),category:document.getElementById('product-category').value.trim(),
+    price:Number(document.getElementById('product-price').value),stock:Number(document.getElementById('product-stock').value),expectedStock:productEditStock };
+  try {
+    await apiRequest(id?`/products/${id}`:'/products',{method:id?'PUT':'POST',body:JSON.stringify(payload)});
+    closeProductForm();await syncFromServer();
+  } catch(error) { alert(error.message);await syncFromServer().catch(()=>{}); }
 }
-
-function openShift() {
-  const openingCash = Number(prompt('Ingrese el efectivo inicial de caja:', '0') || 0);
-  if (Number.isNaN(openingCash) || openingCash < 0) {
-    alert('Monto inválido.');
-    return;
-  }
-
-  state.shift = {
-    isOpen: true,
-    openingCash,
-    currentCash: openingCash,
-    cashSales: 0,
-    cardSales: 0,
-    transferSales: 0,
-    openedAt: new Date().toISOString(),
-    closedAt: null,
-    observedCash: 0,
-    note: ''
-  };
-
-  saveState();
-  renderCashPanel();
-  updateHeader();
+async function openShift() {
+  const raw=prompt('Efectivo inicial de caja:','0');if(raw===null)return;
+  try { await apiRequest('/shifts/open',{method:'POST',body:JSON.stringify({openingCash:raw})});await syncFromServer(); }
+  catch(error) { alert(error.message); }
 }
-
-function closeShift() {
-  const observedCash = Number(prompt('Ingrese el efectivo contado al cerrar turno:', '0') || 0);
-  if (Number.isNaN(observedCash) || observedCash < 0) {
-    alert('Monto inválido.');
-    return;
-  }
-
-  state.shift.isOpen = false;
-  state.shift.closedAt = new Date().toISOString();
-  state.shift.observedCash = observedCash;
-  state.shift.note = `Cierre del día. Dinero observado: ${currency(observedCash)}`;
-
-  saveState();
-  renderCashPanel();
-  updateHeader();
+async function closeShift() {
+  if (pendingSale || saleInFlight) return alert('Confirma primero la venta pendiente.');
+  const raw=prompt('Efectivo contado al cierre:','0');if(raw===null)return;
+  try { await apiRequest('/shifts/close',{method:'POST',body:JSON.stringify({observedCash:raw,shiftId:state.shift.id})});await syncFromServer(); }
+  catch(error) { alert(error.message); }
 }
 
 function renderCashPanel() {
@@ -1639,12 +1257,13 @@ function renderReports() {
             <form id="inventory-check-form" class="mini-form">
               <h5>Verificación inventario</h5>
               <select id="inventory-check-product">
-                ${state.products.map((product) => `<option value="${product.id}">${product.name}</option>`).join('') || '<option value="">Sin productos</option>'}
+                ${state.products.map((product) => `<option value="${product.id}">${escapeHtml(product.name)}</option>`).join('') || '<option value="">Sin productos</option>'}
               </select>
               <input id="inventory-check-date" type="date" />
-              <input id="inventory-check-expected" type="number" placeholder="Esperado" />
+              <input id="inventory-check-expected" type="number" placeholder="Esperado" readonly />
               <input id="inventory-check-counted" type="number" placeholder="Contado" />
-              <textarea id="inventory-check-notes" placeholder="Notas"></textarea>
+              <textarea id="inventory-check-notes" placeholder="Motivo del ajuste / notas"></textarea>
+              <label><input id="inventory-check-adjust" type="checkbox" /> Ajustar existencias al conteo (requiere motivo)</label>
               <button type="submit" class="ghost-btn small">Guardar conteo</button>
             </form>
           </div>
@@ -1715,7 +1334,7 @@ function renderReports() {
     : state.sales.map((sale) => `
         <tr>
           <td>${new Date(sale.createdAt).toLocaleString()}</td>
-          <td>${sale.employeeName}</td>
+          <td>${escapeHtml(sale.employeeName)}</td>
           <td>${sale.paymentMethod}</td>
           <td>${currency(sale.total)}</td>
         </tr>
@@ -1768,26 +1387,13 @@ function bindReportControls() {
       }
 
       try {
-        const res = await fetch(`${API_BASE}/products`, {
+        const res = await posFetch(`${API_BASE}/products`, {
           method: 'POST',
           headers: getAuthHeaders(),
           body: JSON.stringify(payload)
         });
         if (!res.ok) throw new Error('No se pudo guardar el producto');
-        const data = await res.json();
-        const product = data.product || { ...payload, id: Date.now() };
-        const exists = state.products.some((item) => item.id === product.id);
-        if (!exists) state.products.push({
-          id: product.id,
-          name: product.name,
-          category: product.category || payload.category,
-          price: Number(product.price || payload.price),
-          stock: Number(product.stock || payload.stock)
-        });
-        saveState();
-        renderProducts();
-        renderInventory();
-        renderCategoryFilter();
+        await syncFromServer();
         purchaseProductForm.reset();
         alert('Producto agregado correctamente al inventario.');
       } catch (error) {
@@ -1809,7 +1415,7 @@ function bindReportControls() {
         notes: document.getElementById('purchase-notes').value
       };
       try {
-        const res = await fetch(`${API_BASE}/purchases`, {
+        const res = await posFetch(`${API_BASE}/purchases`, {
           method: 'POST',
           headers: getAuthHeaders(),
           body: JSON.stringify(payload)
@@ -1837,7 +1443,7 @@ function bindReportControls() {
         notes: document.getElementById('expense-notes').value
       };
       try {
-        const res = await fetch(`${API_BASE}/expenses`, {
+        const res = await posFetch(`${API_BASE}/expenses`, {
           method: 'POST',
           headers: getAuthHeaders(),
           body: JSON.stringify(payload)
@@ -1853,6 +1459,9 @@ function bindReportControls() {
   }
 
   if (inventoryCheckForm) {
+    const selector=document.getElementById('inventory-check-product');
+    selector.onchange=()=>{document.getElementById('inventory-check-expected').value=state.products.find(p=>p.id===Number(selector.value))?.stock ?? '';};
+    selector.onchange();
     inventoryCheckForm.onsubmit = async (event) => {
       event.preventDefault();
       const productId = document.getElementById('inventory-check-product').value;
@@ -1861,16 +1470,20 @@ function bindReportControls() {
         fecha: document.getElementById('inventory-check-date').value || new Date().toISOString().slice(0, 10),
         expected_qty: Number(document.getElementById('inventory-check-expected').value || 0),
         counted_qty: Number(document.getElementById('inventory-check-counted').value || 0),
-        notes: document.getElementById('inventory-check-notes').value
+        notes: document.getElementById('inventory-check-notes').value,
+        adjustStock: document.getElementById('inventory-check-adjust').checked
       };
       try {
-        const res = await fetch(`${API_BASE}/inventory/check`, {
+        const res = await posFetch(`${API_BASE}/inventory/check`, {
           method: 'POST',
           headers: getAuthHeaders(),
           body: JSON.stringify(payload)
         });
-        if (!res.ok) throw new Error('No se pudo guardar el conteo');
+        const result=await res.json();
+        if (!res.ok) throw new Error(result.error || 'No se pudo guardar el conteo');
+        await syncFromServer();
         inventoryCheckForm.reset();
+        selector.onchange();
         alert('Conteo de inventario guardado.');
       } catch (error) {
         alert(error.message);
@@ -1886,7 +1499,7 @@ async function refreshMonthSummary() {
   const vatBox = document.getElementById('vat-summary-box');
 
   try {
-    const res = await fetch(`${API_BASE}/admin/monthly-summary?month=${encodeURIComponent(month)}`, {
+    const res = await posFetch(`${API_BASE}/admin/monthly-summary?month=${encodeURIComponent(month)}`, {
       headers: getAuthHeaders(null)
     });
     if (!res.ok) throw new Error('No disponible');
@@ -1913,7 +1526,7 @@ async function refreshMonthSummary() {
       `;
     }).join('');
 
-    const vatRes = await fetch(`${API_BASE}/vat-book?start=${encodeURIComponent(`${month}-01`)}&end=${encodeURIComponent(`${month}-31`)}`, {
+    const vatRes = await posFetch(`${API_BASE}/vat-book?start=${encodeURIComponent(`${month}-01`)}&end=${encodeURIComponent(`${month}-31`)}`, {
       headers: getAuthHeaders(null)
     });
     if (vatRes.ok) {
@@ -1951,13 +1564,13 @@ async function closeCurrentMonth() {
   if (!ok) return;
 
   try {
-    const res = await fetch(`${API_BASE}/admin/close-month`, {
+    const res = await posFetch(`${API_BASE}/admin/close-month`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({ year, month: mon, notes: `Cierre del mes ${month}` })
     });
-    if (!res.ok) throw new Error('No se pudo cerrar el mes');
     const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo cerrar el mes');
     alert(`Mes cerrado correctamente. ID: ${data.closure.id}`);
     refreshMonthSummary();
   } catch (error) {
@@ -1968,7 +1581,7 @@ async function closeCurrentMonth() {
 async function downloadReportPdf(type, params = {}) {
   try {
     const query = new URLSearchParams(params);
-    const res = await fetch(`${API_BASE}/reports/${type}/pdf?${query.toString()}`, {
+    const res = await posFetch(`${API_BASE}/reports/${type}/pdf?${query.toString()}`, {
       headers: getAuthHeaders(null)
     });
     if (!res.ok) throw new Error('No se pudo generar el PDF');
@@ -1996,7 +1609,7 @@ async function downloadReportPdf(type, params = {}) {
 async function exportReport(format = 'csv') {
   try {
     const url = `${API_BASE}/reports/sales/export?format=${format}`;
-    const res = await fetch(url, { headers: getAuthHeaders(null) });
+    const res = await posFetch(url, { headers: getAuthHeaders(null) });
     if (!res.ok) {
       alert('No se pudo exportar el reporte. Asegúrate de estar autenticado con un usuario con permisos.');
       return;
@@ -2022,27 +1635,8 @@ async function exportReport(format = 'csv') {
 
 // --- Users management (UI + server sync)
 async function fetchUsersFromServer() {
-  try {
-    const res = await fetch(API_BASE + '/users', { headers: getAuthHeaders(null) });
-    if (!res.ok) return;
-    const data = await res.json();
-    if (data && data.users) {
-      const localById = Object.fromEntries(state.employees.map((e) => [e.id, e]));
-      state.employees = data.users.map((u) => ({
-        id: u.id,
-        name: u.name,
-        role: u.role,
-        // keep local PIN if exists, server doesn't return pins for security
-        pin: localById[u.id] ? localById[u.id].pin : '0000'
-      }));
-      saveState();
-      renderEmployeeOptions();
-      renderUsers();
-    }
-  } catch (err) {
-    // ignore network errors, keep local users
-    console.warn('No se pudo sincronizar usuarios:', err.message);
-  }
+  try { const data=await apiRequest('/users');state.employees=data.users;renderEmployeeOptions();renderUsers(); }
+  catch(error) { console.warn('No se pudo cargar empleados:',error.message); }
 }
 
 function renderUsers() {
@@ -2056,8 +1650,8 @@ function renderUsers() {
   tbody.innerHTML = state.employees
     .map((u) => `
       <tr>
-        <td>${u.name}</td>
-        <td>${u.role}</td>
+        <td>${escapeHtml(u.name)}</td>
+        <td>${escapeHtml(u.role)}</td>
         <td>
           <button class="ghost-btn edit-user" data-id="${u.id}">Editar</button>
           <button class="danger-btn delete-user" data-id="${u.id}">Eliminar</button>
@@ -2085,9 +1679,9 @@ function openUserForm(userId = null) {
     const user = state.employees.find((u) => u.id === userId);
     if (!user) return;
     document.getElementById('user-id').value = user.id;
-    document.getElementById('user-name').value = user.name;
+    document.getElementById('user-form-name').value = user.name;
     document.getElementById('user-role-input').value = user.role;
-    document.getElementById('user-pin').value = user.pin || '';
+    document.getElementById('user-pin').value = '';
   }
 }
 
@@ -2099,113 +1693,19 @@ function closeUserForm() {
 
 async function handleUserSubmit(event) {
   event.preventDefault();
-if (!canManageUserAccounts()) {
-  alert('Solo los administradores o gerentes pueden gestionar usuarios.');
-  return;
-}
-
-const id = document.getElementById('user-id').value ? Number(document.getElementById('user-id').value) : null;
-const name = document.getElementById('user-name').value.trim();
-const role = document.getElementById('user-role-input').value;
-const pin = document.getElementById('user-pin').value.trim();
-
-if (!name || !role || !pin) {
-  alert('Completa todos los campos.');
-  return;
-}
-
-const payload = { name, role, pin };
-
+  if (!canManageUserAccounts()) return alert('Permiso insuficiente.');
+  const id=document.getElementById('user-id').value;
+  const payload={name:document.getElementById('user-form-name').value.trim(),role:document.getElementById('user-role-input').value,pin:document.getElementById('user-pin').value.trim()};
+  if (!payload.name || (!id && !/^\d{6,12}$/.test(payload.pin)) || (payload.pin && !/^\d{6,12}$/.test(payload.pin))) return alert('Indica nombre, rol y un PIN de 6 a 12 dígitos.');
   try {
-    let res;
-    // build headers and attach executive PIN if required by server
-    const headers = getAuthHeaders();
-    try {
-      if (window.state && window.state.companySettings && window.state.companySettings.executive_pin_set) {
-        const execPin = prompt('Introduce PIN ejecutivo para confirmar la acción:');
-        if (!execPin) { alert('Acción cancelada. Se requiere PIN ejecutivo.'); return; }
-        headers['x-exec-pin'] = execPin;
-      }
-    } catch (e) {}
-
-    if (id) {
-      res = await fetch(`${API_BASE}/users/${id}`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify(payload)
-      });
-    } else {
-      res = await fetch(`${API_BASE}/users`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload)
-      });
-    }
-
-    if (res && res.ok) {
-      const data = await res.json();
-      const user = data.user;
-      if (id) {
-        const idx = state.employees.findIndex((u) => u.id === id);
-        if (idx >= 0) state.employees[idx] = { id: user.id, name: user.name, role: user.role, pin };
-      } else {
-        state.employees.push({ id: user.id, name: user.name, role: user.role, pin });
-      }
-    } else {
-      // fallback local-only
-      if (id) {
-        const idx = state.employees.findIndex((u) => u.id === id);
-        if (idx >= 0) state.employees[idx] = { id, name, role, pin };
-      } else {
-        const newId = Date.now();
-        state.employees.push({ id: newId, name, role, pin });
-      }
-    }
-  } catch (err) {
-    // local fallback
-    if (id) {
-      const idx = state.employees.findIndex((u) => u.id === id);
-      if (idx >= 0) state.employees[idx] = { id, name, role, pin };
-    } else {
-      const newId = Date.now();
-      state.employees.push({ id: newId, name, role, pin });
-    }
-  }
-
-  saveState();
-  renderEmployeeOptions();
-  renderUsers();
-  closeUserForm();
+    await apiRequest(id?`/users/${id}`:'/users',{method:id?'PUT':'POST',headers:await executiveHeaders(),body:JSON.stringify(payload)});
+    await fetchUsersFromServer();closeUserForm();
+  } catch(error) { alert(error.message); }
 }
-
-async function deleteUser(userId) {
-  if (!canManageUserAccounts()) {
-    alert('Solo los administradores o gerentes pueden eliminar cuentas.');
-    return;
-  }
-  if (!confirm('¿Eliminar usuario?')) return;
-  try {
-    const headers = getAuthHeaders(null);
-    try {
-      if (window.state && window.state.companySettings && window.state.companySettings.executive_pin_set) {
-        const execPin = prompt('Introduce PIN ejecutivo para confirmar la eliminación:');
-        if (!execPin) { alert('Acción cancelada. Se requiere PIN ejecutivo.'); return; }
-        headers['x-exec-pin'] = execPin;
-      }
-    } catch (e) {}
-
-    const res = await fetch(`${API_BASE}/users/${userId}`, { method: 'DELETE', headers });
-    if (res && res.ok) {
-      state.employees = state.employees.filter((u) => u.id !== userId);
-    } else {
-      state.employees = state.employees.filter((u) => u.id !== userId);
-    }
-  } catch (err) {
-    state.employees = state.employees.filter((u) => u.id !== userId);
-  }
-  saveState();
-  renderEmployeeOptions();
-  renderUsers();
+async function deleteUser(id) {
+  if (!canManageUserAccounts() || !confirm('¿Eliminar usuario?')) return;
+  try { await apiRequest(`/users/${id}`,{method:'DELETE',headers:await executiveHeaders()});await fetchUsersFromServer(); }
+  catch(error) { alert(error.message); }
 }
 
 function fillCompanySettingsForm(settings = {}) {
@@ -2250,7 +1750,7 @@ function fillCompanySettingsForm(settings = {}) {
 }
 
 async function saveCompanySettings(event) {
-  event.preventDefault();
+  event?.preventDefault();
   if (!currentEmployee || currentEmployee.role !== 'admin') {
     alert('Solo el administrador puede guardar la configuración de la empresa.');
     return;
@@ -2275,19 +1775,10 @@ async function saveCompanySettings(event) {
     const reader = new FileReader();
     reader.onload = async () => {
       payload.company_logo = reader.result;
-      // include executive pin hash if set in state
-      if (window.state && window.state.companySettings && window.state.companySettings.executive_pin_hash) {
-        payload.executive_pin_hash = window.state.companySettings.executive_pin_hash;
-      }
       await persistCompanySettings(payload);
     };
     reader.readAsDataURL(file);
     return;
-  }
-
-  // include executive pin hash if set in state
-  if (window.state && window.state.companySettings && window.state.companySettings.executive_pin_hash) {
-    payload.executive_pin_hash = window.state.companySettings.executive_pin_hash;
   }
 
   await persistCompanySettings(payload);
@@ -2296,44 +1787,17 @@ async function saveCompanySettings(event) {
 
 async function persistCompanySettings(payload) {
   try {
-    // Prepare headers and, if executive PIN is configured on the server, prompt for PIN to include
-    const headers = getAuthHeaders();
-
-    try {
-      if (window.state && window.state.companySettings && window.state.companySettings.executive_pin_hash && window.state.companySettings.executive_pin_set) {
-        const pin = prompt('Introduce PIN ejecutivo para confirmar cambios:');
-        if (!pin) { alert('Se requiere PIN ejecutivo para confirmar los cambios.'); return; }
-        headers['x-exec-pin'] = pin;
-      }
-    } catch (e) { /* non-blocking */ }
-
-    const res = await fetch(`${API_BASE}/settings`, {
-      method: 'PUT',
-      headers,
-      body: JSON.stringify(payload)
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'No se pudo guardar la configuración');
+    // A connection target is a device preference, not a shared business setting.
+    const serverBase=payload.server_base;delete payload.server_base;
+    const data=await apiRequest('/settings',{method:'PUT',headers:await executiveHeaders(),body:JSON.stringify(payload)});
+    state.companySettings=data.settings;applyCompanySettings(data.settings);fillCompanySettingsForm(data.settings);
+    if (serverBase && serverBase.replace(/\/$/,'')!==getSavedApiBase()) {
+      const url=new URL(serverBase);
+      if (!['http:','https:'].includes(url.protocol)) throw new Error('URL de servidor inválida');
+      localStorage.setItem('pos_api_base',url.href.replace(/\/$/,''));location.reload();return;
     }
-
-    const data = await res.json();
-    state.companySettings = data.settings || payload;
-    applyCompanySettings(state.companySettings);
-    // Store server base in localStorage so webview / Android wrapper uses it
-    try {
-      if (state.companySettings.server_base) {
-        localStorage.setItem('pos_api_base', state.companySettings.server_base);
-      }
-    } catch (e) {
-      console.warn('No se pudo guardar pos_api_base en localStorage:', e.message);
-    }
-    saveState();
-    alert('Configuración guardada correctamente.');
-  } catch (error) {
-    alert(error.message || 'Error guardando la configuración.');
-  }
+    alert('Configuración guardada.');
+  } catch(error) { alert(error.message); }
 }
 
 async function activateBusiness() {
@@ -2346,7 +1810,7 @@ async function activateBusiness() {
 
   const headers = getAuthHeaders();
   try {
-    if (window.state && window.state.companySettings && window.state.companySettings.executive_pin_set) {
+    if (state.companySettings.executive_pin_set) {
       const pin = prompt('Introduce PIN ejecutivo para confirmar la activación:');
       if (!pin) { alert('Acción cancelada. PIN requerido.'); return; }
       headers['x-exec-pin'] = pin;
@@ -2354,7 +1818,7 @@ async function activateBusiness() {
   } catch (e) { }
 
   try {
-    const res = await fetch(`${API_BASE}/admin/activate-business`, { method: 'POST', headers });
+    const res = await posFetch(`${API_BASE}/admin/activate-business`, { method: 'POST', headers });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       alert(data.error || 'No se pudo activar el negocio');
@@ -2459,7 +1923,7 @@ function initializeApp() {
         return;
       }
       try {
-        const res = await fetch(`${API_BASE}/customers/${customerId}`, { headers: getAuthHeaders(null) });
+        const res = await posFetch(`${API_BASE}/customers/${customerId}`, { headers: getAuthHeaders(null) });
         if (!res.ok) return;
         const data = await res.json();
         const customer = data.customer || {};
@@ -2531,10 +1995,14 @@ function initializeApp() {
 
   loadCompanySettings();
   fetchUsersFromServer();
-  loadCustomers();
-  fetchOrdersFromServer();
+
 
   showLogin();
 }
 
+document.getElementById('login-server-btn')?.addEventListener('click', () => {
+  const value=prompt('URL del servidor POS:',getSavedApiBase());if(!value)return;
+  try { const url=new URL(value);if(!['http:','https:'].includes(url.protocol))throw new Error();localStorage.setItem('pos_api_base',url.href.replace(/\/$/,''));sessionStorage.removeItem('pos_token');location.reload(); }
+  catch(_){alert('URL inválida.');}
+});
 initializeApp();

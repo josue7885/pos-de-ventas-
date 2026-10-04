@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>POS Control</title>
     <link rel="stylesheet" href="style.css" />
+  <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
   </head>
   <body>
     <div id="login-screen" class="auth-screen">
@@ -19,9 +21,10 @@
         <select id="employee-select" class="field-input"></select>
 
         <label class="field-label" for="pin-input">PIN</label>
-        <input id="pin-input" class="field-input" type="password" maxlength="4" placeholder="••••" autocomplete="off" />
+        <input id="pin-input" class="field-input" type="password" maxlength="12" placeholder="••••" autocomplete="off" />
 
         <button id="login-btn" class="primary-btn">Ingresar</button>
+        <button id="login-server-btn" class="ghost-btn" type="button">Configurar servidor</button>
         <p id="login-error" class="error-text hidden">Credenciales inválidas</p>
       </div>
     </div>
@@ -66,7 +69,6 @@
             <div class="hero-cta">
               <button id="quick-sale-btn" class="primary-btn small" type="button">Venta rápida</button>
               <button id="open-settings-btn" class="ghost-btn small" type="button">Configuración</button>
-              <button id="run-full-test-btn" class="ghost-btn small" type="button">Prueba flujo completo</button>
             </div>
           </div>
 
@@ -139,7 +141,6 @@
               <div class="action-row">
                 <button id="process-sale-btn" class="primary-btn large">Cobrar venta</button>
                 <button id="send-kitchen-btn" class="ghost-btn large" title="Enviar la orden actual a cocina">Enviar a cocina</button>
-                <button id="test-sale-btn" class="ghost-btn large" title="Crear una venta de prueba y generar factura">Venta de prueba</button>
               </div>
             </aside>
           </div>
@@ -258,7 +259,7 @@
                 <input type="hidden" id="user-id" />
 
                 <label>Nombre</label>
-                <input id="user-name" type="text" required />
+                <input id="user-form-name" type="text" required />
 
                 <label>Rol</label>
                 <select id="user-role-input">
@@ -270,7 +271,7 @@
                 </select>
 
                 <label>PIN (4 dígitos)</label>
-                <input id="user-pin" type="password" maxlength="4" />
+                <input id="user-pin" type="password" maxlength="12" />
 
                 <div class="form-actions">
                   <button type="submit" class="primary-btn">Guardar</button>
@@ -326,10 +327,10 @@
                 <div class="settings-group">
                   <h4>PIN Ejecutivo</h4>
                   <p>Para mayor seguridad, activa un PIN que se solicitará para acciones administrativas sensibles.</p>
-                  <label>Nuevo PIN ejecutivo (4-8 dígitos)</label>
-                  <input id="setting-executive_pin" type="password" maxlength="8" autocomplete="off" />
+                  <label>Nuevo PIN ejecutivo (6-12 dígitos)</label>
+                  <input id="setting-executive_pin" type="password" maxlength="12" autocomplete="off" />
                   <label>Confirmar PIN ejecutivo</label>
-                  <input id="setting-executive_pin_confirm" type="password" maxlength="8" autocomplete="off" />
+                  <input id="setting-executive_pin_confirm" type="password" maxlength="12" autocomplete="off" />
                   <div style="margin-top:8px;">
                     <button id="save-executive-pin-btn" type="button" class="primary-btn small">Guardar PIN ejecutivo</button>
                   </div>
