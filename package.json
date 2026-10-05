@@ -89,7 +89,9 @@
           "customer-display.html",
           "kitchen-display.html",
           "manifest.webmanifest",
-          "icon.svg"
+          "icon.svg",
+          "pos-math.js",
+          "enhancements.js"
         ]
       }
     ]

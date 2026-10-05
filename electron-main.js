@@ -49,5 +49,6 @@ else app.whenReady().then(async()=>{
   try{origin=await startServer();createWindow();}catch(error){dialog.showErrorBox('No se pudo iniciar POS',error.message+'\nPrimera ejecución: define POS_ADMIN_PIN (6 a 12 dígitos).');app.quit();}
 });
 app.on('activate',()=>{if(origin && !BrowserWindow.getAllWindows().length)createWindow();});
+app.on('second-instance',()=>{const win=BrowserWindow.getAllWindows()[0];if(win){if(win.isMinimized())win.restore();win.show();win.focus();}});
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});
 app.on('before-quit',()=>{quitting=true;serverProcess?.kill();});

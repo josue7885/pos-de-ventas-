@@ -4,6 +4,7 @@ const DEFAULT_STATE = {
   employees: [],
   rooms: [{ id: 'salon-principal', name: 'Salón principal' }],
   products: [],
+  categories: [],
   sales: [],
   companySettings: {},
   orders: [],
@@ -184,12 +185,12 @@ async function syncFromServer() {
   const userId = currentEmployee.id;
   const data = await apiRequest('/sync');
   if (seq !== syncSequence || !currentEmployee || currentEmployee.id !== userId) return;
-  const stamp=JSON.stringify([data.products,data.sales,data.shift,data.orders,data.user,data.rooms,data.tables]);
-  if (stamp===lastSnapshot) return;
+  const stamp=JSON.stringify([data.products,data.sales,data.shift,data.orders,data.user,data.rooms,data.tables,data.categories]);
+  if (stamp===lastSnapshot) { if(activeModule==='documents')refreshDocuments(); return; }
   lastSnapshot=stamp;
   currentEmployee=data.user;
-  state.products=data.products;
-  state.sales=data.sales.map(s=>({id:s.id,employeeName:s.employee_name,paymentMethod:s.payment_method,total:s.total,subtotal:s.subtotal,tax:s.tax,items:s.items.map(i=>({...i,id:i.product_id})),createdAt:s.created_at,receivedAmount:s.received_amount,change:s.change_amount}));
+  state.products=data.products;state.categories=data.categories||[];
+  state.sales=data.sales.map(s=>({...s,id:s.id,employeeName:s.employee_name,paymentMethod:s.payment_method,total:s.total,subtotal:s.subtotal,tax:s.tax,items:s.items.map(i=>({...i,id:i.product_id})),customerName:s.customer_name,invoiceNumber:s.invoice_number,discount:s.discount||0,createdAt:s.created_at,receivedAmount:s.received_amount,change:s.change_amount}));
   state.shift=data.shift;
   state.orders=data.orders;state.rooms=data.rooms;state.tables=data.tables;
   const draftFields=Array.from(document.querySelectorAll('#module-reports input, #module-reports textarea, #module-reports select')).map(el=>({id:el.id,value:el.value,checked:el.checked}));
@@ -201,6 +202,7 @@ async function syncFromServer() {
   for(const field of draftFields){const el=document.getElementById(field.id);if(el){el.value=field.value;if(el.type==='checkbox')el.checked=field.checked;}}
   if(focused) document.getElementById(focused)?.focus();
   renderOrders();renderKitchenOrders();renderTables();renderDashboardSummary();updateHeader();renderNav();
+  if(activeModule==='documents')refreshDocuments();
 }
 function initOrderEventStream() {
   stopSync();
@@ -212,7 +214,7 @@ function initOrderEventStream() {
 }
 function stopSync() { clearInterval(syncTimer);syncTimer=null;++syncSequence;lastSnapshot=''; }
 function expireSession() {
-  stopSync();currentEmployee=null;sessionStorage.removeItem('pos_token');showLogin();
+  stopSync();resetEnhancements();cart=[];pendingSale=null;currentEmployee=null;state=deepClone(DEFAULT_STATE);lastSnapshot='';++syncSequence;sessionStorage.removeItem('pos_token');showLogin();
   const error=document.getElementById('login-error');
   error.textContent='La sesión venció. Inicia sesión nuevamente.';error.classList.remove('hidden');
 }
@@ -456,23 +458,15 @@ function updateHeader() {
 
 function renderEmployeeOptions() {
   const select = document.getElementById('employee-select');
-  select.innerHTML = state.employees
+  select.innerHTML = state.employees.filter(u=>u.active!==0)
     .map((employee) => `<option value="${employee.id}">${escapeHtml(employee.name)} - ${employee.role}</option>`)
     .join('');
 }
 
-async function loadCustomers() {
-  try {
-    const res = await posFetch(`${API_BASE}/customers`, { headers: getAuthHeaders(null) });
-    if (!res.ok) return;
-    const data = await res.json();
-    const customers = data.customers || [];
-    const select = document.getElementById('customer-select');
-    if (!select) return;
-    select.innerHTML = '<option value="">Cliente general / consumidor final</option>' + customers.map((customer) => `<option value="${customer.id}">${escapeHtml(customer.full_name)} - ${escapeHtml(customer.nit || 'Sin NIT')}</option>`).join('');
-  } catch (error) {
-    console.warn('No se pudieron cargar clientes:', error.message);
-  }
+async function loadCustomers(selected=document.getElementById('customer-select')?.value || '') {
+  const userId=currentEmployee?.id;
+  try { const data=await apiRequest('/customers');if(currentEmployee?.id!==userId)return;customerDirectory=data.customers;renderCustomerDirectory(selected); }
+  catch(error) { console.warn('No se pudieron cargar clientes:',error.message); }
 }
 
 function getCustomerPayloadFromForm() {
@@ -490,7 +484,7 @@ function getCustomerPayloadFromForm() {
   return {
     customerId: customerId || null,
     customerName: customerName || 'Cliente general',
-    customerNit: customerType === 'credito_fiscal' ? (customerNit || 'CF') : 'CF',
+    customerNit: customerNit || 'CF',
     customerEmail,
     customerPhone,
     customerAddress,
@@ -574,13 +568,13 @@ async function saveCustomerFromForm() {
       if (select) {
         const optionExists = Array.from(select.options).some((option) => Number(option.value) === Number(customer.id));
         if (!optionExists) {
-          const option = new Option(`${escapeHtml(customer.full_name)} - ${escapeHtml(customer.nit || 'Sin NIT')}`, customer.id);
+          const option = new Option(`${customer.full_name} - ${customer.nit || 'Sin NIT'}`, customer.id);
           select.add(option);
         }
         select.value = String(customer.id);
       }
       alert('Cliente guardado correctamente.');
-      await loadCustomers();
+      await loadCustomers(String(customer.id));
     }
   } catch (error) {
     alert(error.message || 'No se pudo guardar el cliente.');
@@ -605,6 +599,8 @@ function openBillingModal(action = 'payment') {
 
   const totals = getCartTotals();
   const modal = document.getElementById('billing-modal');
+  modal.classList.remove('customer-only');
+  document.getElementById('billing-modal-title').textContent='Datos del comprobante';
   const modalCustomerSummary = document.getElementById('modal-customer-summary');
   const modalTotalSummary = document.getElementById('modal-total-summary');
   const confirmBtn = document.getElementById('confirm-billing-btn');
@@ -700,12 +696,12 @@ function openCustomerDisplay() {
 function renderNav() {
   const nav = document.getElementById('nav-menu');
   const visibleSections = {
-    admin: ['pos', 'tables', 'orders', 'kitchen', 'inventory', 'cash', 'reports', 'users', 'settings'],
-    cajero: ['pos', 'tables', 'orders', 'cash'],
+    admin: ['documents','pos', 'tables', 'orders', 'kitchen', 'inventory', 'cash', 'reports', 'users', 'settings'],
+    cajero: ['documents','pos', 'tables', 'orders', 'cash'],
     mesero: ['pos', 'tables', 'orders', 'kitchen'],
     cocina: ['kitchen'],
-    gerente: ['pos', 'tables', 'orders', 'kitchen', 'reports', 'cash', 'users'],
-    contador: ['reports', 'cash']
+    gerente: ['documents','inventory','pos', 'tables', 'orders', 'kitchen', 'reports', 'cash', 'users'],
+    contador: ['documents','reports', 'cash']
   };
 
   const modules = [
@@ -715,6 +711,7 @@ function renderNav() {
     { id: 'kitchen', label: 'Cocina' },
     { id: 'inventory', label: 'Inventario' },
     { id: 'cash', label: 'Caja' },
+    { id:'documents',label:'Documentos' },
     { id: 'reports', label: 'Reportes' },
     { id: 'users', label: 'Usuarios' },
     { id: 'settings', label: 'Configuración' }
@@ -807,10 +804,15 @@ function setActiveModule(moduleId) {
   renderNav();
   if (moduleId === 'cash') renderCashPanel();
   if (moduleId === 'reports') renderReports();
+  if (moduleId === 'documents') refreshDocuments();
+  if (moduleId === 'inventory') refreshInventoryHistory();
   if (moduleId === 'pos') renderDashboardSummary();
 }
 
 async function loginUser() {
+  document.getElementById('pin-input').type='password';
+  document.getElementById('toggle-login-pin').textContent='Mostrar';
+  document.getElementById('toggle-login-pin').setAttribute('aria-pressed','false');
   const button=document.getElementById('login-btn');
   if (button.disabled) return;
   button.disabled=true;
@@ -819,13 +821,14 @@ async function loginUser() {
   try {
     const data=await apiRequest('/auth/login',{method:'POST',body:JSON.stringify({id:Number(document.getElementById('employee-select').value),pin:document.getElementById('pin-input').value})});
     if (!data.user || !data.token) throw new Error('Respuesta de acceso inválida.');
+    resetEnhancements();cart=[];pendingSale=null;lastSnapshot='';
     currentEmployee=data.user;
     sessionStorage.setItem('pos_token',data.token);
     await loadCompanySettings();
     await syncFromServer();
     await loadCustomers();
     await fetchUsersFromServer();
-    restorePendingSale();
+    restorePendingSale();refreshPendingOperations();
     errorText.classList.add('hidden');document.getElementById('pin-input').value='';
     document.getElementById('admin-hero')?.classList.toggle('hidden',!canAccessExecutivePanel());
     setActiveModule(currentEmployee.role==='cocina'?'kitchen':currentEmployee.role==='mesero'?'tables':currentEmployee.role==='contador'?'reports':'pos');
@@ -840,7 +843,7 @@ async function logoutUser() {
   if (saleInFlight) return alert('Espera la confirmación de la venta.');
   try { await apiRequest('/auth/logout',{method:'POST',body:'{}'}); }
   catch(error) { if (error.status!==401) return alert('No se pudo cerrar la sesión en el servidor. Reintenta con conexión.'); }
-  stopSync();currentEmployee=null;cart=[];pendingSale=null;sessionStorage.removeItem('pos_token');
+  resetEnhancements();stopSync();currentEmployee=null;cart=[];pendingSale=null;sessionStorage.removeItem('pos_token');
   state=deepClone(DEFAULT_STATE);renderCart();showLogin();await fetchUsersFromServer();
 }
 
@@ -858,7 +861,7 @@ function renderProducts() {
   const selectedCategory = document.getElementById('category-filter').value;
 
   const filteredProducts = state.products.filter((product) => {
-    const matchesText = product.name.toLowerCase().includes(searchTerm);
+    const matchesText = [product.name,product.code,product.category].some(value=>String(value||'').toLowerCase().includes(searchTerm));
     const matchesCategory = selectedCategory === 'all' || product.category === selectedCategory;
     return matchesText && matchesCategory;
   });
@@ -874,7 +877,7 @@ function renderProducts() {
       <div class="product-tag">${escapeHtml(product.category)}</div>
       <h4>${escapeHtml(product.name)}</h4>
       <p class="product-price">${currency(product.price)}</p>
-      <small>Stock: ${product.stock}</small>
+      <small>${tracksStock(product)?'Existencias: '+product.stock+' '+escapeHtml(product.unit||'unidad'):'Servicio sin control de existencias'}</small>
       <button type="button" class="small primary-btn add-item-btn" data-product-id="${product.id}">Agregar</button>
     </article>
   `).join('');
@@ -889,7 +892,7 @@ function addToCart(productId) {
   const product = state.products.find((item) => item.id === productId);
 
   if (!product) return;
-  if (product.stock <= 0) {
+  if (tracksStock(product) && product.stock <= 0) {
     alert('El producto está agotado.');
     return;
   }
@@ -897,17 +900,18 @@ function addToCart(productId) {
   const existingItem = cart.find((item) => item.id === productId);
 
   if (existingItem) {
-    if (existingItem.qty >= product.stock) {
+    if (tracksStock(product) && existingItem.qty + (quantityStep(product)<1?.1:1) > product.stock) {
       alert('No hay más stock disponible para este producto.');
       return;
     }
-    existingItem.qty += 1;
+    existingItem.qty=roundQuantity(existingItem.qty+(quantityStep(product)<1?.1:1));
   } else {
     cart.push({
       id: product.id,
       name: product.name,
       price: product.price,
-      qty: 1,
+      qty: quantityStep(product)<1?Math.min(.1,product.stock||.1):1,
+      unit:product.unit,type:product.type,cost:product.cost,catalogPrice:product.price,
       stock: product.stock
     });
   }
@@ -916,9 +920,7 @@ function addToCart(productId) {
 }
 
 function getCartTotals() {
-  const subtotalCents=cart.reduce((sum,item)=>sum+Math.round((item.price+Number.EPSILON)*100)*item.qty,0);
-  const taxCents=Math.round(subtotalCents*Number(state.companySettings.iva_rate ?? 0.13));
-  return { subtotal:subtotalCents/100,discount:0,tax:taxCents/100,total:(subtotalCents+taxCents)/100 };
+  return PosMath.totals(cart,Number(state.companySettings.iva_rate??.13),Number(document.getElementById('billing-discount-percent')?.value||0));
 }
 
 function renderCart() {
@@ -935,7 +937,8 @@ function renderCart() {
         </div>
         <div class="cart-controls">
           <button type="button" class="qty-btn" data-action="decrease" data-index="${index}">−</button>
-          <span>${item.qty}</span>
+          <input class="cart-quantity-input" aria-label="Cantidad" type="number" min="0.001" step="${quantityStep(item)}" value="${item.qty}" data-index="${index}" />
+          ${canEditInventory()?`<button type="button" class="price-adjust-btn ghost-btn small" data-index="${index}">Precio</button>`:''}
           <button type="button" class="qty-btn" data-action="increase" data-index="${index}">+</button>
           <button type="button" class="remove-btn" data-index="${index}">Eliminar</button>
         </div>
@@ -951,8 +954,12 @@ function renderCart() {
     button.addEventListener('click', () => removeCartItem(Number(button.dataset.index)));
   });
 
+  document.querySelectorAll('.cart-quantity-input').forEach(input=>input.addEventListener('change',()=>setCartItemQuantity(Number(input.dataset.index),input.value)));
+  document.querySelectorAll('.price-adjust-btn').forEach(button=>button.addEventListener('click',()=>editCartPrice(Number(button.dataset.index))));
+  document.getElementById('billing-discount-percent').disabled=!canEditInventory()||operationLocked();
+  document.getElementById('billing-discount-reason').disabled=!canEditInventory()||operationLocked();
   const totals = getCartTotals();
-  document.getElementById('subtotal-value').textContent = totals.subtotal.toFixed(2);
+  document.getElementById('subtotal-value').textContent = totals.gross.toFixed(2);
   document.getElementById('discount-value').textContent = totals.discount.toFixed(2);
   document.getElementById('tax-value').textContent = totals.tax.toFixed(2);
   document.getElementById('total-value').textContent = totals.total.toFixed(2);
@@ -965,25 +972,9 @@ function renderCart() {
 }
 
 function updateCartItemQuantity(index, action) {
-  if (saleInFlight || pendingSale) return alert('Primero confirma la venta pendiente.');
-  const item = cart[index];
-  if (!item) return;
-
-  if (action === 'increase') {
-    const product = state.products.find((entry) => entry.id === item.id);
-    if (product && item.qty >= product.stock) {
-      alert('Stock insuficiente');
-      return;
-    }
-    item.qty += 1;
-  }
-
-  if (action === 'decrease') {
-    item.qty -= 1;
-    if (item.qty <= 0) cart.splice(index, 1);
-  }
-
-  renderCart();
+  const item=cart[index];if(!item)return;
+  const step=quantityStep(item)<1?.1:1,next=roundQuantity(item.qty+(action==='increase'?step:-step));
+  if(next<=0){removeCartItem(index);return;}setCartItemQuantity(index,next);
 }
 
 function removeCartItem(index) {
@@ -994,7 +985,7 @@ function removeCartItem(index) {
 
 function clearCart() {
   if (saleInFlight || pendingSale) return alert('Primero confirma la venta pendiente.');
-  cart = [];
+  cart = [];resetSaleAdjustments();
   const cashReceived = document.getElementById('billing-cash-received') || document.getElementById('cash-received');
   if (cashReceived) cashReceived.value = '';
   renderCart();
@@ -1007,7 +998,8 @@ function restorePendingSale() {
   try { pendingSale=JSON.parse(localStorage.getItem(pendingSaleKey()) || 'null'); }
   catch (_) { pendingSale=null; }
   if (pendingSale) {
-    cart=pendingSale.payload.items.map(i=>({...i}));
+    cart=pendingSale.payload.items.map(i=>({...state.products.find(p=>p.id===i.id),...i}));
+    document.getElementById('billing-discount-percent').value=pendingSale.payload.discountPercent||0;document.getElementById('billing-discount-reason').value=pendingSale.payload.discountReason||'';
     alert('Existe una venta sin confirmación. Pulsa Cobrar venta para consultar/reintentar la misma operación.');
   }
 }
@@ -1021,8 +1013,7 @@ async function processSale() {
   if (!pendingSale && paymentMethod==='efectivo' && (!Number.isFinite(receivedAmount) || receivedAmount<totals.total)) return alert('Efectivo insuficiente o inválido.');
   if (!pendingSale && localStorage.getItem(pendingSaleKey())) { restorePendingSale();renderCart();return; }
   if (!pendingSale) {
-    pendingSale={ key:newRequestId(),payload:{...getCustomerPayloadFromForm(),...totals,paymentMethod,receivedAmount,
-      items:cart.map(i=>({id:i.id,name:i.name,price:i.price,qty:i.qty}))} };
+    pendingSale={key:newRequestId(),payload:{...cartPayload(),paymentMethod,receivedAmount}};
     try { localStorage.setItem(pendingSaleKey(),JSON.stringify(pendingSale)); }
     catch (_) { pendingSale=null;return alert('No se pudo guardar el identificador de venta. No se envió el cobro.'); }
   }
@@ -1031,7 +1022,7 @@ async function processSale() {
     const data=await apiRequest('/sales',{method:'POST',headers:{'Idempotency-Key':pendingSale.key},body:JSON.stringify(pendingSale.payload)});
     if (!data.sale?.id) throw new Error('No se recibió confirmación de la venta.');
     // Mark committed before rendering or requesting PDFs. Those failures must never create a second sale.
-    localStorage.removeItem(pendingSaleKey());pendingSale=null;cart=[];renderCart();
+    localStorage.removeItem(pendingSaleKey());pendingSale=null;cart=[];resetSaleAdjustments();renderCart();
     await syncFromServer().catch(()=>alert('Venta confirmada. Actualiza para consultar el saldo y las existencias.'));
     window.open(getApiUrl(`/invoices/${data.sale.id}/pdf`),'_blank','noopener');
     alert(`Venta confirmada #${data.sale.id}. Total: ${currency(data.sale.total)}${data.replayed?' (operación recuperada, sin duplicar)':''}.`);
@@ -1039,42 +1030,19 @@ async function processSale() {
     if (pendingSale && error.status>=400 && error.status<500 && !pendingSale.uncertain) {
       localStorage.removeItem(pendingSaleKey());pendingSale=null;
       await syncFromServer().catch(()=>{});
-      cart=cart.flatMap(i=>{const p=state.products.find(p=>p.id===i.id);return p&&p.stock>0?[{...i,name:p.name,price:p.price,qty:Math.min(i.qty,p.stock)}]:[];});renderCart();
+      cart=cart.flatMap(i=>{const p=state.products.find(p=>p.id===i.id);return p&&(!tracksStock(p)||p.stock>0)?[{...p,qty:tracksStock(p)?Math.min(i.qty,p.stock):i.qty,price:p.price,catalogPrice:p.price}]:[];});renderCart();
       alert('Venta rechazada: '+error.message);
     } else if (pendingSale) {
       pendingSale.uncertain=true;
       localStorage.setItem(pendingSaleKey(),JSON.stringify(pendingSale));
       alert('No se pudo confirmar el resultado. Conservamos la operación; pulsa Cobrar venta para reintentar sin duplicarla.');
     } else { alert('La venta fue confirmada, pero falló una acción posterior: '+error.message); }
-  } finally { saleInFlight=false; }
+  } finally { saleInFlight=false;renderCart(); }
 }
 
-function renderInventory() {
-  const tableBody = document.getElementById('inventory-table-body');
+function renderInventory() { renderExtendedInventory(); }
 
-  tableBody.innerHTML = state.products.map((product) => `
-    <tr>
-      <td>${escapeHtml(product.name)}</td>
-      <td>${escapeHtml(product.category)}</td>
-      <td>${currency(product.price)}</td>
-      <td>${product.stock}</td>
-      <td>
-        <button class="ghost-btn small edit-product-btn" data-id="${product.id}">Editar</button>
-        <button class="danger-btn small delete-product-btn" data-id="${product.id}">Eliminar</button>
-      </td>
-    </tr>
-  `).join('');
-
-  document.querySelectorAll('.edit-product-btn').forEach((button) => {
-    button.addEventListener('click', () => openProductForm(Number(button.dataset.id)));
-  });
-
-  document.querySelectorAll('.delete-product-btn').forEach((button) => {
-    button.addEventListener('click', () => deleteProduct(Number(button.dataset.id)));
-  });
-}
-
-let productEditStock=null;
+let productEditStock=null,productEditVersion=null;
 function openProductForm(productId = null) {
   const formPanel = document.getElementById('product-form-panel');
   const form = document.getElementById('product-form');
@@ -1092,12 +1060,14 @@ function openProductForm(productId = null) {
     document.getElementById('product-category').value = product.category;
     document.getElementById('product-price').value = product.price;
     document.getElementById('product-stock').value = product.stock;
-    productEditStock=product.stock;
+    productEditStock=product.stock;productEditVersion=product.version;
+    for(const [field,key] of Object.entries({'product-code':'code','product-cost':'cost','product-min-stock':'min_stock','product-type':'type','product-unit':'unit'}))document.getElementById(field).value=product[key]??'';
     formTitle.textContent = 'Editar producto';
   } else {
     document.getElementById('product-id').value = '';
-    formTitle.textContent = 'Agregar producto';
+    formTitle.textContent = 'Agregar producto';productEditStock=null;productEditVersion=null;
   }
+  updateProductTypeFields();
 }
 
 function closeProductForm() {
@@ -1114,7 +1084,7 @@ async function handleProductSubmit(event) {
   event.preventDefault();
   const id=Number(document.getElementById('product-id').value) || null;
   const payload={ name:document.getElementById('product-name').value.trim(),category:document.getElementById('product-category').value.trim(),
-    price:Number(document.getElementById('product-price').value),stock:Number(document.getElementById('product-stock').value),expectedStock:productEditStock };
+    price:Number(document.getElementById('product-price').value),stock:Number(document.getElementById('product-stock').value),expectedStock:productEditStock,expectedVersion:productEditVersion,code:document.getElementById('product-code').value,cost:Number(document.getElementById('product-cost').value),min_stock:Number(document.getElementById('product-min-stock').value),type:document.getElementById('product-type').value,unit:document.getElementById('product-unit').value };
   try {
     await apiRequest(id?`/products/${id}`:'/products',{method:id?'PUT':'POST',body:JSON.stringify(payload)});
     closeProductForm();await syncFromServer();
@@ -1181,12 +1151,18 @@ function renderCashPanel() {
 }
 
 function renderReports() {
+  const employees=document.getElementById('sales-report-employee'),selected=employees?.value;
+  if(employees){employees.replaceChildren(new Option('Todos los cajeros','all'),...[...new Set(state.sales.map(s=>s.employeeName))].map(name=>new Option(name,name)));employees.value=selected||'all';}
+  const reportSales=filteredSales();
+  const knownCosts=reportSales.filter(s=>s.items.length && s.items.every(i=>i.cost!==null && i.cost!==undefined));
+  const profitCents=knownCosts.reduce((n,s)=>n+PosMath.cents(s.subtotal)-s.items.reduce((cost,i)=>cost+Math.round(PosMath.cents(i.cost)*PosMath.quantity(i.qty)/1000),0),0);
+
   const tableBody = document.getElementById('sales-table-body');
   const reportCards = document.getElementById('report-cards');
 
-  const totalSales = state.sales.reduce((sum, sale) => sum + sale.total, 0);
-  const totalCount = state.sales.length;
-  const totalUnits = state.sales.reduce((sum, sale) => sum + sale.items.reduce((acc, item) => acc + item.qty, 0), 0);
+  const totalSales = reportSales.reduce((sum, sale) => sum + sale.total, 0);
+  const totalCount = reportSales.length;
+  const totalUnits = reportSales.reduce((sum, sale) => sum + sale.items.reduce((acc, item) => acc + item.qty, 0), 0);
   const currentMonth = new Date().toISOString().slice(0, 7);
   const selectedReport = localStorage.getItem('pos_selected_report_view') || 'monthly';
 
@@ -1261,7 +1237,7 @@ function renderReports() {
               </select>
               <input id="inventory-check-date" type="date" />
               <input id="inventory-check-expected" type="number" placeholder="Esperado" readonly />
-              <input id="inventory-check-counted" type="number" placeholder="Contado" />
+              <input id="inventory-check-counted" step="0.001" type="number" placeholder="Contado" />
               <textarea id="inventory-check-notes" placeholder="Motivo del ajuste / notas"></textarea>
               <label><input id="inventory-check-adjust" type="checkbox" /> Ajustar existencias al conteo (requiere motivo)</label>
               <button type="submit" class="ghost-btn small">Guardar conteo</button>
@@ -1305,8 +1281,9 @@ function renderReports() {
           <strong>${totalUnits}</strong>
         </div>
         <div class="metric-card compact">
-          <span>Modo</span>
-          <strong>${(state.companySettings && state.companySettings.hacienda_mode) || 'sandbox'}</strong>
+          <span>Utilidad bruta estimada</span>
+          <strong>${currency(profitCents/100)}</strong>
+          <small>Sin IVA ni gastos. ${reportSales.length-knownCosts.length} ventas sin costo histórico. Fechas UTC.</small>
         </div>
       </div>
 
@@ -1329,9 +1306,9 @@ function renderReports() {
     </div>
   `;
 
-  tableBody.innerHTML = state.sales.length === 0
+  tableBody.innerHTML = reportSales.length === 0
     ? '<tr><td colspan="4" class="empty-state">No hay ventas registradas.</td></tr>'
-    : state.sales.map((sale) => `
+    : reportSales.map((sale) => `
         <tr>
           <td>${new Date(sale.createdAt).toLocaleString()}</td>
           <td>${escapeHtml(sale.employeeName)}</td>
@@ -1608,7 +1585,8 @@ async function downloadReportPdf(type, params = {}) {
 
 async function exportReport(format = 'csv') {
   try {
-    const url = `${API_BASE}/reports/sales/export?format=${format}`;
+    const query=salesReportQuery();query.set('format',format);
+    const url = `${API_BASE}/reports/sales/export?${query}`;
     const res = await posFetch(url, { headers: getAuthHeaders(null) });
     if (!res.ok) {
       alert('No se pudo exportar el reporte. Asegúrate de estar autenticado con un usuario con permisos.');
@@ -1635,7 +1613,7 @@ async function exportReport(format = 'csv') {
 
 // --- Users management (UI + server sync)
 async function fetchUsersFromServer() {
-  try { const data=await apiRequest('/users');state.employees=data.users;renderEmployeeOptions();renderUsers(); }
+  try { const data=await apiRequest(canManageUserAccounts()?'/users?includeInactive=1':'/users');state.employees=data.users;renderEmployeeOptions();renderUsers(); }
   catch(error) { console.warn('No se pudo cargar empleados:',error.message); }
 }
 
@@ -1651,7 +1629,7 @@ function renderUsers() {
     .map((u) => `
       <tr>
         <td>${escapeHtml(u.name)}</td>
-        <td>${escapeHtml(u.role)}</td>
+        <td>${escapeHtml(u.role)} · ${u.active===0?'Inactivo':'Activo'}</td>
         <td>
           <button class="ghost-btn edit-user" data-id="${u.id}">Editar</button>
           <button class="danger-btn delete-user" data-id="${u.id}">Eliminar</button>
@@ -1681,6 +1659,7 @@ function openUserForm(userId = null) {
     document.getElementById('user-id').value = user.id;
     document.getElementById('user-form-name').value = user.name;
     document.getElementById('user-role-input').value = user.role;
+    document.getElementById('user-active').checked=user.active!==0;
     document.getElementById('user-pin').value = '';
   }
 }
@@ -1695,7 +1674,7 @@ async function handleUserSubmit(event) {
   event.preventDefault();
   if (!canManageUserAccounts()) return alert('Permiso insuficiente.');
   const id=document.getElementById('user-id').value;
-  const payload={name:document.getElementById('user-form-name').value.trim(),role:document.getElementById('user-role-input').value,pin:document.getElementById('user-pin').value.trim()};
+  const payload={active:document.getElementById('user-active').checked,name:document.getElementById('user-form-name').value.trim(),role:document.getElementById('user-role-input').value,pin:document.getElementById('user-pin').value.trim()};
   if (!payload.name || (!id && !/^\d{6,12}$/.test(payload.pin)) || (payload.pin && !/^\d{6,12}$/.test(payload.pin))) return alert('Indica nombre, rol y un PIN de 6 a 12 dígitos.');
   try {
     await apiRequest(id?`/users/${id}`:'/users',{method:id?'PUT':'POST',headers:await executiveHeaders(),body:JSON.stringify(payload)});
@@ -1879,7 +1858,7 @@ function initializeApp() {
   updateHeader();
 
   const loginBtn = document.getElementById('login-btn');
-  if (loginBtn) loginBtn.addEventListener('click', loginUser);
+  document.getElementById('login-form')?.addEventListener('submit',event=>{event.preventDefault();loginUser();});
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) logoutBtn.addEventListener('click', logoutUser);
   const searchInput = document.getElementById('search-input');
@@ -1904,6 +1883,7 @@ function initializeApp() {
   const customerSelectEl = document.getElementById('customer-select');
   if (customerSelectEl) {
     customerSelectEl.addEventListener('change', async () => {
+      if(operationLocked())return;
       const customerId = customerSelectEl.value;
       const setField = (id, value) => {
         const target = document.getElementById(id);
@@ -1927,6 +1907,7 @@ function initializeApp() {
         if (!res.ok) return;
         const data = await res.json();
         const customer = data.customer || {};
+        if(customerSelectEl.value!==customerId)return;
         setField('billing-customer-name', customer.full_name || '');
         setField('billing-customer-nit', customer.nit || '');
         setField('billing-customer-email', customer.email || '');
@@ -1984,12 +1965,12 @@ function initializeApp() {
   const addTableBtn = document.getElementById('add-table-btn');
   if (addTableBtn) addTableBtn.addEventListener('click', addTableToCurrentRoom);
 
-  bindCompanySettingsForm();
+  bindCompanySettingsForm();initEnhancements();
 
   const pinInputEl = document.getElementById('pin-input');
   if (pinInputEl) {
     pinInputEl.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') loginUser();
+      if (event.key === 'Enter') {event.preventDefault();loginUser();}
     });
   }
 

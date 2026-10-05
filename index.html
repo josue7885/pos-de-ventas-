@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>POS Control</title>
+    <title>POS Control · Sistema integral de ventas</title>
     <link rel="stylesheet" href="style.css" />
   <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
@@ -17,15 +17,25 @@
           <h1 id="login-company-name">Control de ventas</h1>
         </div>
 
-        <label class="field-label" for="employee-select">Empleado</label>
-        <select id="employee-select" class="field-input"></select>
+        <form id="login-form" class="auth-form">
+          <label class="field-label" for="employee-select">Usuario</label>
+          <select id="employee-select" class="field-input" autocomplete="username" required>
+            <option value="">Cargando usuarios...</option>
+          </select>
 
-        <label class="field-label" for="pin-input">PIN</label>
-        <input id="pin-input" class="field-input" type="password" maxlength="12" placeholder="••••" autocomplete="off" />
+          <label class="field-label" for="pin-input">PIN de acceso</label>
+          <div class="pin-input-wrap">
+            <input id="pin-input" class="field-input" type="password" inputmode="numeric" pattern="[0-9]{4,12}" minlength="4" maxlength="12" placeholder="Ingresa tu PIN" autocomplete="current-password" required />
+            <button id="toggle-login-pin" class="pin-visibility-btn" type="button" aria-label="Mostrar PIN" aria-pressed="false">Mostrar</button>
+          </div>
 
-        <button id="login-btn" class="primary-btn">Ingresar</button>
+          <p id="login-error" class="error-text hidden" role="alert" aria-live="polite"></p>
+          <button id="login-btn" class="primary-btn" type="submit">Ingresar</button>
+          <p class="auth-footnote">Tu acceso es personal. No compartas tu PIN.</p>
+        </form>
+
         <button id="login-server-btn" class="ghost-btn" type="button">Configurar servidor</button>
-        <p id="login-error" class="error-text hidden">Credenciales inválidas</p>
+
       </div>
     </div>
 
@@ -36,7 +46,7 @@
           <div class="brand-badge" id="sidebar-brand-badge">POS</div>
           <div>
             <strong id="sidebar-company-name">POS Control</strong>
-            <small id="sidebar-company-subtitle">Version 2.0</small>
+            <small id="sidebar-company-subtitle">Ventas y administración</small>
           </div>
         </div>
 
@@ -58,6 +68,8 @@
             <span id="shift-status" class="status-badge neutral">Caja cerrada</span>
           </div>
         </header>
+
+        <div id="operation-recovery-panel" class="panel hidden" role="status"></div>
 
         <section id="module-pos" class="module active">
           <div id="admin-hero" class="admin-hero panel">
@@ -82,7 +94,7 @@
                   <select id="category-filter" class="mini-select">
                     <option value="all">Todas</option>
                   </select>
-                  <input id="search-input" type="text" placeholder="Buscar producto..." />
+                  <input id="search-input" type="text" placeholder="Buscar nombre, SKU o código de barras..." />
                 </div>
               </div>
               <div id="product-grid" class="product-grid"></div>
@@ -121,7 +133,7 @@
                    <span class="eyebrow">Facturación</span>
                    <h4>Venta actual</h4>
                  </div>
-                 <span class="payment-pill">Factura</span>
+                 <span class="payment-pill">Comprobante interno</span>
                 </div>
 
                 <div class="quick-sale-summary">
@@ -135,11 +147,23 @@
                  </div>
                 </div>
 
-                <button id="quick-billing-btn" class="ghost-btn small full-width-btn" type="button">Ingresar datos de factura</button>
+                <button id="quick-billing-btn" class="ghost-btn small full-width-btn" type="button">Ingresar datos del comprobante</button>
               </div>
 
+              <section class="sale-customer-panel">
+                <h4>Cliente y comprobante</h4>
+                <input id="billing-customer-search" type="search" placeholder="Buscar cliente por nombre, NIT o correo" aria-label="Buscar cliente" />
+                <select id="customer-select" class="mini-select full-width"><option value="">Cliente general / consumidor final</option></select>
+                <div class="form-actions"><button id="billing-new-customer-btn" type="button" class="ghost-btn small">Agregar cliente</button><button id="billing-edit-customer-btn" type="button" class="ghost-btn small">Editar cliente</button></div>
+                <p id="selected-quote-label" role="status"></p>
+                <div class="sale-adjustments">
+                  <label for="billing-discount-percent">Descuento autorizado (%)</label><input id="billing-discount-percent" type="number" min="0" max="100" step="0.01" value="0" />
+                  <label for="billing-discount-reason">Motivo</label><input id="billing-discount-reason" maxlength="240" placeholder="Requerido para aplicar descuento" />
+                </div>
+              </section>
               <div class="action-row">
                 <button id="process-sale-btn" class="primary-btn large">Cobrar venta</button>
+                <button id="save-quote-btn" class="ghost-btn large" type="button">Guardar cotización</button>
                 <button id="send-kitchen-btn" class="ghost-btn large" title="Enviar la orden actual a cocina">Enviar a cocina</button>
               </div>
             </aside>
@@ -187,43 +211,190 @@
             <div class="panel">
               <div class="panel-header">
                 <h3>Inventario</h3>
-                <button id="new-product-btn" class="primary-btn small">Nuevo producto</button>
+                <div class="table-tools">
+                  <button id="inventory-count-btn" class="ghost-btn small" type="button">Conteo físico</button>
+                  <button id="inventory-pdf-btn" class="ghost-btn small" type="button">Descargar PDF</button>
+                  <button id="receive-stock-btn" class="ghost-btn small" type="button">Recibir mercancía</button>
+                  <button id="export-inventory-btn" class="ghost-btn small" type="button">Exportar inventario</button>
+                  <button id="new-product-btn" class="primary-btn small" type="button">Nuevo artículo</button>
+                </div>
               </div>
 
+              <div id="inventory-summary" class="summary-cards"></div>
+              <section class="inventory-category-panel">
+                <div class="panel-header">
+                  <div>
+                    <h4>Categorías</h4>
+                    <small>Solo usuarios con permiso de Inventario pueden crear o eliminar categorías.</small>
+                  </div>
+                </div>
+                <form id="inventory-category-form" class="inventory-category-form">
+                  <input id="inventory-category-name" type="text" maxlength="80" placeholder="Nombre de nueva categoría" required />
+                  <button class="ghost-btn small" type="submit">Crear categoría</button>
+                </form>
+                <div id="inventory-category-list" class="inventory-category-list"></div>
+              </section>
+              <form id="receive-stock-form" class="inventory-receive-form hidden">
+                <div class="panel-header">
+                  <div>
+                    <h4>Entrada de mercancía</h4>
+                    <small>Actualiza existencias y costo promedio; registra el movimiento y la compra contable una sola vez.</small>
+                  </div>
+                  <button id="cancel-receive-stock-btn" class="ghost-btn small" type="button">Cerrar</button>
+                </div>
+                <div class="inventory-receive-grid">
+                  <label for="receive-product">Artículo</label>
+                  <select id="receive-product" required></select>
+                  <label for="receive-quantity">Cantidad recibida</label>
+                  <input id="receive-quantity" type="number" min="0.001" step="0.001" required />
+                  <label for="receive-unit-cost">Costo unitario sin IVA</label>
+                  <input id="receive-unit-cost" type="number" min="0" step="0.01" required />
+                  <label for="receive-tax">IVA total de esta entrada</label>
+                  <input id="receive-tax" type="number" min="0" step="0.01" value="0" required />
+                  <label for="receive-supplier">Proveedor</label>
+                  <input id="receive-supplier" type="text" maxlength="120" required />
+                  <label for="receive-reference">Factura / referencia</label>
+                  <input id="receive-reference" type="text" maxlength="80" required />
+                  <label for="receive-note">Nota</label>
+                  <input id="receive-note" type="text" maxlength="240" />
+                </div>
+                <button class="primary-btn small" type="submit">Registrar entrada</button>
+              </form>
+              <div class="inventory-tools">
+                <input id="inventory-search" type="search" placeholder="Buscar nombre, SKU o código de barras..." aria-label="Buscar en inventario" />
+                <select id="inventory-status-filter" class="mini-select" aria-label="Filtrar inventario">
+                  <option value="all">Todos los artículos</option>
+                  <option value="low">Existencias bajas</option>
+                  <option value="out">Agotados</option>
+                  <option value="services">Servicios</option>
+                </select>
+              </div>
               <div class="table-wrap">
                 <table>
                   <thead>
                     <tr>
                       <th>Producto</th>
                       <th>Categoría</th>
+                      <th>SKU / Código</th>
+                      <th>Costo</th>
                       <th>Precio</th>
                       <th>Stock</th>
+                      <th>Estado</th>
                       <th>Acciones</th>
                     </tr>
                   </thead>
                   <tbody id="inventory-table-body"></tbody>
                 </table>
               </div>
+
+              <div class="panel-header inventory-history-header">
+                <h4>Movimientos recientes</h4>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Artículo</th>
+                      <th>Movimiento</th>
+                      <th>Cantidad</th>
+                      <th>Responsable</th>
+                      <th>Nota</th>
+                    </tr>
+                  </thead>
+                  <tbody id="inventory-movements-body"></tbody>
+                </table>
+              </div>
+
+              <div class="panel-header inventory-history-header">
+                <h4>Recepciones recientes</h4>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Artículo</th>
+                      <th>Proveedor</th>
+                      <th>Cantidad</th>
+                      <th>Costo unitario</th>
+                      <th>Total</th>
+                      <th>Referencia</th>
+                    </tr>
+                  </thead>
+                  <tbody id="inventory-purchases-body"></tbody>
+                </table>
+              </div>
+
+              <div class="panel-header inventory-history-header">
+                <h4>Conteos físicos recientes</h4>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Artículo</th>
+                      <th>Existencia sistema</th>
+                      <th>Conteo físico</th>
+                      <th>Diferencia</th>
+                      <th>Responsable</th>
+                      <th>Nota</th>
+                    </tr>
+                  </thead>
+                  <tbody id="inventory-checks-body"></tbody>
+                </table>
+              </div>
             </div>
 
             <div id="product-form-panel" class="panel hidden">
               <div class="panel-header">
-                <h3 id="form-title">Agregar producto</h3>
+                <h3 id="form-title">Agregar artículo</h3>
               </div>
               <form id="product-form" class="product-form">
                 <input type="hidden" id="product-id" />
 
-                <label>Nombre</label>
-                <input id="product-name" type="text" required />
+                <label for="product-name">Nombre</label>
+                <input id="product-name" type="text" maxlength="120" required />
 
-                <label>Categoría</label>
-                <input id="product-category" type="text" required />
+                <label for="product-type">Tipo de artículo</label>
+                <select id="product-type" class="mini-select">
+                  <option value="producto">Producto con existencias</option>
+                  <option value="servicio">Servicio (sin existencias)</option>
+                </select>
 
-                <label>Precio</label>
+                <label for="product-category">Categoría</label>
+                <input id="product-category" list="inventory-category-options" required /><datalist id="inventory-category-options"></datalist>
+
+                <label for="product-code">SKU / Código de barras</label>
+                <input id="product-code" type="text" maxlength="80" autocomplete="off" />
+
+                <label for="product-unit">Unidad de medida</label>
+                <select id="product-unit" class="mini-select">
+                  <option value="unidad">Unidad</option>
+                  <option value="pieza">Pieza</option>
+                  <option value="caja">Caja</option>
+                  <option value="paquete">Paquete</option>
+                  <option value="kg">Kilogramo</option>
+                  <option value="g">Gramo</option>
+                  <option value="litro">Litro</option>
+                  <option value="ml">Mililitro</option>
+                  <option value="metro">Metro</option>
+                  <option value="hora">Hora</option>
+                  <option value="servicio">Servicio</option>
+                </select>
+
+                <label for="product-cost">Costo unitario</label>
+                <input id="product-cost" type="number" min="0" step="0.01" value="0" required />
+
+                <label for="product-price">Precio de venta</label>
                 <input id="product-price" type="number" min="0" step="0.01" required />
 
-                <label>Stock</label>
-                <input id="product-stock" type="number" min="0" step="1" required />
+                <label for="product-stock">Existencias actuales</label>
+                <input id="product-stock" type="number" min="0" step="0.001" value="0" required />
+
+                <label for="product-min-stock">Alerta de existencias bajas</label>
+                <input id="product-min-stock" type="number" min="0" step="0.001" value="5" required />
 
                 <div class="form-actions">
                   <button type="submit" class="primary-btn">Guardar</button>
@@ -268,10 +439,12 @@
                   <option value="contador">Contador</option>
                   <option value="gerente">Gerente</option>
                   <option value="cocina">Cocina</option>
+                  <option value="mesero">Mesero</option>
                 </select>
 
-                <label>PIN (4 dígitos)</label>
-                <input id="user-pin" type="password" maxlength="12" />
+                <label><input id="user-active" type="checkbox" checked /> Cuenta activa</label>
+                <label>PIN (6 a 12 dígitos)</label>
+                <input id="user-pin" type="password" inputmode="numeric" minlength="6" maxlength="12" />
 
                 <div class="form-actions">
                   <button type="submit" class="primary-btn">Guardar</button>
@@ -430,6 +603,63 @@
           </div>
         </section>
 
+        <section id="module-documents" class="module hidden">
+          <div class="panel billing-sales-history">
+            <div class="panel-header">
+              <div>
+                <h3>Comprobantes internos</h3>
+                <small>Consulta hasta 1,000 ventas y 1,000 cotizaciones. PDF y JSON internos, sin autorización fiscal.</small>
+              </div>
+              <input id="billing-invoices-search" type="search" autocomplete="off" placeholder="Buscar por documento, cliente o identificación" aria-label="Buscar documentos de venta" />
+            </div>
+            <div id="billing-server-status" class="billing-server-status" role="status"></div>
+            <div class="billing-history-filters" aria-label="Filtros de documentos">
+              <div class="field-group">
+                <label for="billing-invoices-from">Desde</label>
+                <input id="billing-invoices-from" type="date" />
+              </div>
+              <div class="field-group">
+                <label for="billing-invoices-to">Hasta</label>
+                <input id="billing-invoices-to" type="date" />
+              </div>
+              <div class="field-group">
+                <label for="billing-invoices-type">Tipo de documento</label>
+                <select id="billing-invoices-type" class="mini-select full-width">
+                  <option value="">Todos los tipos</option>
+                  <option value="consumidor_final">Consumidor final (01)</option>
+                  <option value="credito_fiscal">Crédito fiscal (03)</option>
+                </select>
+              </div>
+              <button id="billing-invoices-clear-filters" class="ghost-btn small" type="button">Limpiar filtros</button>
+            </div>
+            <div id="billing-invoices-summary" class="billing-invoices-summary" aria-live="polite"></div>
+            <div class="panel-header billing-history-header">
+              <h4>Ventas y comprobantes recientes</h4>
+              <button id="billing-refresh-invoices-btn" class="ghost-btn small" type="button">Actualizar</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Documento</th><th>Tipo</th><th>Fecha</th><th>Cliente</th><th>Estado</th><th>Total</th><th>Acciones</th></tr></thead>
+                <tbody id="billing-invoices-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="panel documents-quotes-panel">
+            <div class="panel-header">
+              <div>
+                <h3>Cotizaciones</h3>
+                <small>Consulta, imprime, descarga o carga una cotización para continuar la venta.</small>
+              </div>
+              <div class="documents-quote-tools">
+                <input id="documents-quote-search" type="search" autocomplete="off" placeholder="Buscar cotización o cliente" aria-label="Buscar cotizaciones" />
+                <button id="quotes-module-create-btn" class="primary-btn small" type="button">Crear desde ticket</button>
+              </div>
+            </div>
+            <div id="documents-quotes-content"></div>
+          </div>
+        </section>
+
         <section id="module-reports" class="module hidden">
           <div class="panel">
             <div class="panel-header">
@@ -441,6 +671,25 @@
               </div>
             </div>
 
+            <div class="report-filters">
+              <label for="sales-report-start">Desde</label>
+              <input id="sales-report-start" type="date" />
+              <label for="sales-report-end">Hasta</label>
+              <input id="sales-report-end" type="date" />
+              <label for="sales-report-payment">Pago</label>
+              <select id="sales-report-payment" class="mini-select">
+                <option value="all">Todos</option>
+                <option value="efectivo">Efectivo</option>
+                <option value="tarjeta">Tarjeta</option>
+                <option value="transferencia">Transferencia</option>
+              </select>
+              <label for="sales-report-employee">Cajero</label>
+              <select id="sales-report-employee" class="mini-select">
+                <option value="all">Todos</option>
+              </select>
+              <button id="apply-sales-report-btn" class="primary-btn small" type="button">Aplicar filtros</button>
+              <button id="clear-sales-report-btn" class="ghost-btn small" type="button">Limpiar</button>
+            </div>
             <div id="report-cards" class="summary-cards"></div>
 
             <div class="table-wrap">
@@ -466,14 +715,14 @@
      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="billing-modal-title">
        <div class="modal-header">
          <div>
-           <span class="eyebrow">Factura electrónica</span>
-           <h3 id="billing-modal-title">Datos de la factura</h3>
+           <span class="eyebrow">Comprobante interno</span>
+           <h3 id="billing-modal-title">Datos del comprobante</h3>
          </div>
          <button type="button" id="close-billing-modal-btn" class="icon-close" aria-label="Cerrar">×</button>
        </div>
 
        <div class="modal-body">
-         <div class="invoice-summary-box">
+         <div class="invoice-summary-box billing-only">
            <div>
              <small>Cliente</small>
              <strong id="modal-customer-summary">Consumidor final</strong>
@@ -484,7 +733,7 @@
            </div>
          </div>
 
-         <div class="field-grid two-columns">
+         <div class="field-grid two-columns billing-only">
            <div class="field-group">
              <label for="billing-payment-method">Método de pago</label>
              <select id="billing-payment-method" class="mini-select full-width">
@@ -561,12 +810,7 @@
            <textarea id="billing-customer-notes" rows="3" placeholder="Notas internas o referencia de la venta"></textarea>
          </div>
 
-         <div class="field-group">
-           <label for="customer-select">Cliente guardado</label>
-           <select id="customer-select" class="mini-select full-width">
-             <option value="">Cliente general / consumidor final</option>
-           </select>
-         </div>
+
 
          <div class="modal-actions">
            <button id="save-customer-btn" class="ghost-btn small" type="button">Guardar cliente</button>
@@ -577,6 +821,8 @@
    </div>
 
     <script src="app_utils.js"></script>
+    <script src="pos-math.js"></script>
+    <script src="enhancements.js"></script>
     <script src="app.js"></script>
     <script src="app_exec_pin.js"></script>
   </body>

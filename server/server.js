@@ -28,7 +28,7 @@ app.use((req, res, next) => {
   if (!['GET','HEAD','OPTIONS'].includes(req.method) && req.headers.origin && req.headers.origin !== `${req.protocol}://${req.get('host')}` && !allowedOrigins.includes(req.headers.origin)) return res.status(403).json({ error: 'Origen no permitido' });
   next();
 });
-const publicFiles = ['index.html','style.css','app.js','app_utils.js','app_exec_pin.js','customer-display.html','kitchen-display.html','display.js','manifest.webmanifest','icon.svg'];
+const publicFiles = ['index.html','style.css','app.js','app_utils.js','app_exec_pin.js','customer-display.html','kitchen-display.html','display.js','manifest.webmanifest','icon.svg','pos-math.js','enhancements.js'];
 app.get('/', (req,res) => res.sendFile(path.join(ROOT_DIR, 'index.html')));
 for (const file of publicFiles) app.get('/' + file, (req,res) => res.sendFile(path.join(ROOT_DIR, file)));
 const PORT = Number(process.env.PORT || 3000);
@@ -264,7 +264,7 @@ function authenticateRequired(req,res,next) {
     const token = bearer ? bearer[1] : cookie && cookie[1];
     if (!token) return res.status(401).json({ error:'Inicia sesión para continuar.' });
     const payload = jwt.verify(token,JWT_SECRET,{ algorithms:['HS256'] });
-    const user = db.prepare('SELECT id,name,role,token_version FROM users WHERE id=?').get(payload.id);
+    const user = db.prepare('SELECT id,name,role,token_version FROM users WHERE id=? AND active=1').get(payload.id);
     const session = db.prepare('SELECT id FROM sessions WHERE id=? AND user_id=? AND expires_at>?').get(payload.sid,payload.id,Date.now());
     if (!user || !session || user.token_version !== payload.version) return res.status(401).json({ error:'Sesión vencida. Inicia sesión nuevamente.' });
     req.user = { id:user.id,name:user.name,role:user.role };
@@ -313,7 +313,7 @@ async function sendInvoiceEmail(invoiceRow, customerEmail) {
       to:customerEmail,
       subject:`Comprobante interno ${invoiceRow.number}`,
       text:`Adjuntamos el comprobante ${invoiceRow.number} de ${config.company_name}. Sin autorización fiscal.`,
-      attachments:[{filename:'comprobante.pdf',content:pdf,contentType:'application/pdf'}]
+      attachments:[{filename:'comprobante.pdf',content:pdf,contentType:'application/pdf'},{filename:'comprobante.json',content:JSON.stringify({...sale,number:invoiceRow.number,fiscalStatus:'NOT_AUTHORIZED'},null,2),contentType:'application/json'}]
     });
   } finally { transporter.close(); }
 
@@ -360,7 +360,7 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
     user = all.find((u) => bcrypt.compareSync(String(pin).trim(), u.pin));
   }
 
-  if (!user) return res.status(401).json({ error: 'Credenciales inválidas' });
+  if (!user || !user.active) return res.status(401).json({ error: 'Credenciales inválidas' });
 
   // if id login, verify pin
   if (id && !bcrypt.compareSync(String(pin).trim(), user.pin)) {
@@ -379,8 +379,11 @@ app.get('/api/products', authenticateOptional, (req, res) => {
 
 // Users management endpoints
 app.get('/api/users', (req, res) => {
-  const users = db.prepare('SELECT id, name, role FROM users ORDER BY id').all();
-  res.json({ users });
+  if(req.query.includeInactive==='1')return authenticateRequired(req,res,()=>{
+    if(!requireAdminOrManager(req,res))return;
+    res.json({users:db.prepare('SELECT id,name,role,active FROM users ORDER BY id').all()});
+  });
+  res.json({users:db.prepare('SELECT id,name,role,active FROM users WHERE active=1 ORDER BY id').all()});
 });
 
 app.get('/api/users/:id', authenticateOptional, (req, res) => {
@@ -401,39 +404,20 @@ app.get('/api/customers/:id', authenticateOptional, (req, res) => {
   res.json({ customer: row });
 });
 
-app.post('/api/customers', authenticateOptional, (req, res) => {
-  const payload = req.body || {};
-  const fullName = String(payload.full_name || payload.name || '').trim();
-  const nit = String(payload.nit || '').trim();
-  if (!fullName) return res.status(400).json({ error: 'Nombre del cliente requerido' });
-
-  const insert = db.prepare(`INSERT INTO customers (full_name, nit, dui, email, phone, address, document_type, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
-  const info = insert.run(fullName, nit || '', payload.dui || '', payload.email || '', payload.phone || '', payload.address || '', payload.document_type || determineInvoiceType({ nit }), payload.notes || '');
-  const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(info.lastInsertRowid);
-  res.json({ customer });
-});
-
-app.put('/api/customers/:id', authenticateOptional, (req, res) => {
-  const payload = req.body || {};
-  const existing = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
-  if (!existing) return res.status(404).json({ error: 'Cliente no encontrado' });
-
-  db.prepare(`UPDATE customers SET full_name = ?, nit = ?, dui = ?, email = ?, phone = ?, address = ?, document_type = ?, notes = ? WHERE id = ?`)
-    .run(
-      String(payload.full_name || payload.name || existing.full_name || '').trim(),
-      String(payload.nit || existing.nit || '').trim(),
-      payload.dui || existing.dui || '',
-      payload.email || existing.email || '',
-      payload.phone || existing.phone || '',
-      payload.address || existing.address || '',
-      payload.document_type || existing.document_type || determineInvoiceType({ nit: payload.nit || existing.nit || '' }),
-      payload.notes || existing.notes || '',
-      req.params.id
-    );
-
-  const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
-  res.json({ customer });
+function customerInput(body) {
+  const result={};
+  for(const [key,max] of Object.entries({full_name:200,nit:40,dui:40,email:254,phone:40,address:1000,department:100,municipality:100,giro:200,notes:1000})) {
+    result[key]=String(body[key]??'').trim();if(result[key].length>max)throw Object.assign(new Error('Campo demasiado largo: '+key),{status:400});
+  }
+  if(!result.full_name || (result.email && !/^[^\s@<>;,]+@[^\s@<>;,]+\.[^\s@<>;,]+$/.test(result.email)))throw Object.assign(new Error('Nombre o correo inválido'),{status:400});
+  result.document_type=body.document_type==='credito_fiscal'?'credito_fiscal':'consumidor_final';return result;
+}
+for(const method of ['post','put'])app[method](method==='post'?'/api/customers':'/api/customers/:id',(req,res)=>{
+  if(!['admin','gerente','cajero','mesero'].includes(req.user.role))return res.status(403).json({error:'Permiso insuficiente'});
+  const p=customerInput(req.body),keys=Object.keys(p);
+  if(method==='put' && !db.prepare('SELECT id FROM customers WHERE id=?').get(req.params.id))return res.status(404).json({error:'Cliente no encontrado'});
+  const result=method==='post'?db.prepare('INSERT INTO customers('+keys.join(',')+') VALUES ('+keys.map(()=>'?').join(',')+')').run(...Object.values(p)):db.prepare('UPDATE customers SET '+keys.map(k=>k+'=?').join(',')+' WHERE id=?').run(...Object.values(p),req.params.id);
+  res.json({customer:db.prepare('SELECT * FROM customers WHERE id=?').get(method==='post'?result.lastInsertRowid:req.params.id)});
 });
 
 app.post('/api/users', execLimiter, authenticateRequired, (req, res) => {
@@ -443,10 +427,11 @@ app.post('/api/users', execLimiter, authenticateRequired, (req, res) => {
 
   const { name, role, pin } = req.body;
   if (!name || !role || !pin) return res.status(400).json({ error: 'name, role y pin son requeridos' });
+  if(req.body.active!==undefined && typeof req.body.active!=='boolean')return res.status(400).json({error:'Estado de usuario inválido'});
   if (!['admin','gerente','cajero','mesero','cocina','contador'].includes(role) || !/^\d{6,12}$/.test(String(pin)) || (req.user.role !== 'admin' && ['admin','gerente'].includes(role))) return res.status(400).json({error:'Rol o PIN inválido'});
   const hashed = bcrypt.hashSync(String(pin).trim(), 12);
-  const stmt = db.prepare('INSERT INTO users (name, role, pin) VALUES (?,?,?)');
-  const info = stmt.run(name, role, hashed);
+  const stmt = db.prepare('INSERT INTO users (name, role, pin, active) VALUES (?,?,?,?)');
+  const info = stmt.run(String(name).trim().slice(0,200), role, hashed,req.body.active===false?0:1);
   const user = db.prepare('SELECT id, name, role FROM users WHERE id = ?').get(info.lastInsertRowid);
   res.json({ user });
 });
@@ -461,10 +446,12 @@ app.put('/api/users/:id', execLimiter, authenticateRequired, (req, res) => {
   const existing = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'Usuario no encontrado' });
   if ((role && !['admin','gerente','cajero','mesero','cocina','contador'].includes(role)) || (pin && !/^\d{6,12}$/.test(String(pin))) || (req.user.role !== 'admin' && ([existing.role,role].some(r => ['admin','gerente'].includes(r))))) return res.status(400).json({error:'Rol o PIN inválido'});
-  if (existing.role === 'admin' && role && role !== 'admin' && db.prepare("SELECT COUNT(*) AS n FROM users WHERE role='admin'").get().n <= 1) return res.status(409).json({error:'Debe quedar un administrador'});
+  if(req.body.active!==undefined && typeof req.body.active!=='boolean')return res.status(400).json({error:'Estado de usuario inválido'});
+  const active=req.body.active===undefined?existing.active:Number(req.body.active);
+  if (existing.role === 'admin' && existing.active && ((!active) || (role && role !== 'admin')) && db.prepare("SELECT COUNT(*) AS n FROM users WHERE role='admin' AND active=1").get().n <= 1) return res.status(409).json({error:'Debe quedar un administrador activo'});
   const newPin = pin ? bcrypt.hashSync(String(pin).trim(), 10) : existing.pin;
-  const stmt = db.prepare('UPDATE users SET name = ?, role = ?, pin = ?, token_version = token_version + 1 WHERE id = ?');
-  stmt.run(name || existing.name, role || existing.role, newPin, id);
+  const stmt = db.prepare('UPDATE users SET name = ?, role = ?, pin = ?, active = ?, token_version = token_version + 1 WHERE id = ?');
+  stmt.run(name ? String(name).trim().slice(0,200) : existing.name, role || existing.role, newPin, active, id);
   const user = db.prepare('SELECT id, name, role FROM users WHERE id = ?').get(id);
   res.json({ user });
 });
@@ -477,13 +464,14 @@ app.delete('/api/users/:id', execLimiter, authenticateRequired, (req, res) => {
   const id = req.params.id;
   const target = db.prepare('SELECT role FROM users WHERE id=?').get(id);
   if (!target) return res.status(404).json({error:'Usuario no encontrado'});
-  if (Number(id) === req.user.id || (req.user.role !== 'admin' && ['admin','gerente'].includes(target.role)) || (target.role === 'admin' && db.prepare("SELECT COUNT(*) AS n FROM users WHERE role='admin'").get().n <= 1)) return res.status(409).json({error:'No puedes eliminar esta cuenta'});
+  if (Number(id) === req.user.id || (req.user.role !== 'admin' && ['admin','gerente'].includes(target.role)) || (target.role === 'admin' && db.prepare("SELECT COUNT(*) AS n FROM users WHERE role='admin' AND active=1 AND id<>?").get(id).n < 1)) return res.status(409).json({error:'No puedes eliminar esta cuenta'});
   const stmt = db.prepare('DELETE FROM users WHERE id = ?');
   stmt.run(id);
   res.json({ success: true });
 });
 
 require('./core')(app, () => db, { profile:buildCompanyProfile, nextInvoiceData, addVatBookEntry, requireAdminOrManager });
+require('./extensions')(app, () => db, {profile:buildCompanyProfile,requireAdminOrManager,ensureOpenPeriod});
 
 app.get('/api/purchases', authenticateRequired, (req, res) => {
   const rows = db.prepare('SELECT * FROM purchases ORDER BY fecha DESC, id DESC').all();
@@ -520,16 +508,18 @@ app.post('/api/expenses', authenticateRequired, (req, res) => {
 app.post('/api/inventory/check', authenticateRequired, (req, res) => {
   if (!requireAdminOrManager(req, res)) return;
   const { product_id, fecha, expected_qty, counted_qty, notes, adjustStock } = req.body || {};
-  if (!validDate(fecha) || !Number.isSafeInteger(counted_qty) || counted_qty<0 || counted_qty>10000000 || !Number.isSafeInteger(expected_qty)) return res.status(400).json({error:'Fecha o cantidades inválidas'});
+  if (!validDate(fecha) || !Number.isFinite(counted_qty) || counted_qty<0 || counted_qty>10000000 || !Number.isFinite(expected_qty)) return res.status(400).json({error:'Fecha o cantidades inválidas'});
   const check = db.transaction(() => {
     const product=db.prepare('SELECT * FROM products WHERE id=?').get(product_id);
     if(!product) throw Object.assign(new Error('Producto no encontrado'),{status:404});
     if(product.stock !== expected_qty) throw Object.assign(new Error('El inventario cambió. Actualiza antes del conteo.'),{status:409});
-    const difference=counted_qty-product.stock;
+    if(product.type==='servicio')throw Object.assign(new Error('Los servicios no tienen existencias'),{status:400});
+    require('./commerce').qty(counted_qty,product.unit,true);
+    const difference=Math.round((counted_qty-product.stock)*1000)/1000;
     const info=db.prepare('INSERT INTO inventory_checks (fecha,product_id,expected_qty,counted_qty,difference,notes) VALUES (?,?,?,?,?,?)').run(fecha,product_id,product.stock,counted_qty,difference,String(notes || ''));
     if(adjustStock === true) {
       if(!String(notes || '').trim()) throw Object.assign(new Error('Indica el motivo del ajuste.'),{status:400});
-      db.prepare('UPDATE products SET stock=? WHERE id=?').run(counted_qty,product_id);
+      db.prepare('UPDATE products SET stock=?,version=version+1 WHERE id=?').run(counted_qty,product_id);
       db.prepare('INSERT INTO inventory_movements (product_id,delta,balance,reason,user_id,created_at) VALUES (?,?,?,?,?,?)').run(product_id,difference,counted_qty,'Conteo: '+notes,req.user.id,new Date().toISOString());
     }
     return db.prepare('SELECT * FROM inventory_checks WHERE id=?').get(info.lastInsertRowid);
@@ -716,39 +706,21 @@ app.get('/api/reports/vat-book/pdf', authenticateRequired, (req, res) => {
 app.get('/api/reports/inventory/pdf', authenticateRequired, (req, res) => {
   const range = ensureDateRange(req.query.start, req.query.end, undefined);
   const products = db.prepare(`SELECT * FROM products ORDER BY name ASC`).all();
-  const positives = products.filter(p => Number(p.stock || 0) >= 0);
-  const negatives = products.filter(p => Number(p.stock || 0) < 0);
-
   const doc = new PDFDocument({ size: 'A4', margin: 50 });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'attachment; filename="inventario.pdf"');
-  doc.pipe(res);
-
-  buildPdfHeader(doc, 'Inventario', range.start, range.end);
-
-  doc.fontSize(12).font('Helvetica-Bold').text('Existencias positivas', { underline: true });
-  doc.moveDown(0.3);
-  if (positives.length === 0) {
-    doc.font('Helvetica').text('No hay productos con existencias positivas.');
-  } else {
-    positives.forEach((p) => {
-      doc.font('Helvetica').fontSize(10).text(`${p.name} — Stock: ${Number(p.stock || 0)} — Precio: ${Number(p.price || 0).toFixed(2)}`);
-      if (doc.y > doc.page.height - 100) doc.addPage();
-    });
+  doc.on('error',()=>res.destroy());doc.pipe(res);
+  buildPdfHeader(doc, 'Inventario actual', range.start, range.end);
+  doc.fontSize(10).text('Existencias al generar este documento. Los servicios no controlan existencias.').moveDown();
+  for(const p of products){
+    if(doc.y>doc.page.height-140)doc.addPage();
+    doc.font('Helvetica-Bold').fontSize(11).text(`${p.code || '#'+p.id} · ${p.name}`);
+    doc.font('Helvetica').fontSize(10).text(`${p.category} · ${p.type} · Unidad: ${p.unit}`);
+    doc.text(`Precio: $${p.price.toFixed(2)} · Costo unitario: $${p.cost.toFixed(2)}`);
+    if(p.type!=='servicio')doc.text(`Existencias: ${p.stock} · Mínimo: ${p.min_stock}${p.stock<=p.min_stock?' · ALERTA: existencias bajas':''}`);
+    doc.moveDown(.5);
   }
-
-  doc.addPage();
-  doc.fontSize(12).font('Helvetica-Bold').text('Existencias negativas (alerta)', { underline: true });
-  doc.moveDown(0.3);
-  if (negatives.length === 0) {
-    doc.font('Helvetica').text('No hay existencias negativas.');
-  } else {
-    negatives.forEach((p) => {
-      doc.fillColor('red').font('Helvetica').fontSize(10).text(`${p.name} — Stock: ${Number(p.stock || 0)} — Precio: ${Number(p.price || 0).toFixed(2)}`);
-      doc.fillColor('black');
-      if (doc.y > doc.page.height - 100) doc.addPage();
-    });
-  }
+  if(!products.length)doc.text('No hay artículos registrados.');
 
   doc.end();
 });
@@ -799,7 +771,7 @@ app.post('/api/orders', authenticateOptional, (req, res) => {
   let items = req.body?.items;
   if (!Array.isArray(items) || !items.length || items.length > 500) return res.status(400).json({error:'Orden inválida'});
   if (req.user.role === 'cocina') return res.status(403).json({error:'Permiso insuficiente'});
-  items = items.map(it => { const p=db.prepare('SELECT * FROM products WHERE id=?').get(it.id); return p && Number.isSafeInteger(it.qty) && it.qty>0 ? {...p,qty:it.qty} : null; });
+  items = items.map(it => { const p=db.prepare('SELECT * FROM products WHERE id=?').get(it.id); return p ? {...p,qty:require('./commerce').qty(it.qty,p.unit)} : null; });
   if (items.some(it=>!it)) return res.status(400).json({error:'Productos inválidos'});
   const employeeName = req.user.name;
   if (!items || !items.length) return res.status(400).json({ error: 'La orden no tiene productos' });
@@ -814,7 +786,7 @@ app.post('/api/orders', authenticateOptional, (req, res) => {
       customerName || 'Cliente',
       notes || '',
       'pending',
-      items.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.qty || 0), 0),
+      require('../pos-math').totals(items,0).subtotal,
       new Date().toISOString()
     );
 
@@ -869,28 +841,31 @@ app.patch('/api/orders/:id/status', authenticateOptional, (req, res) => {
   res.json({ success: true, order: fullOrder, rows: row.changes });
 });
 
-app.get('/api/reports/sales', (req,res) => {
-  const {start,end,employeeId}=req.query;
+function salesReportRows(query) {
+  const {start,end,employeeId,employee,payment}=query;
   const where=[],args=[];
   if(start){where.push('date(s.created_at)>=date(?)');args.push(start);}
   if(end){where.push('date(s.created_at)<=date(?)');args.push(end);}
   if(employeeId){where.push('s.employee_name=(SELECT name FROM users WHERE id=?)');args.push(employeeId);}
-  const sales=db.prepare('SELECT s.* FROM sales s'+(where.length?' WHERE '+where.join(' AND '):'')+' ORDER BY s.id DESC').all(...args);
+  if(employee){if(typeof employee!=='string' || employee.length>200)throw Object.assign(new Error('Cajero inválido'),{status:400});where.push('s.employee_name=?');args.push(employee);}
+  if(payment){if(!['efectivo','tarjeta','transferencia'].includes(payment))throw Object.assign(new Error('Método inválido'),{status:400});where.push('s.payment_method=?');args.push(payment);}
+  return db.prepare('SELECT s.* FROM sales s'+(where.length?' WHERE '+where.join(' AND '):'')+' ORDER BY s.id DESC').all(...args).map(s=>{
+    const items=db.prepare('SELECT cost,qty FROM sale_items WHERE sale_id=?').all(s.id);
+    const cost=items.length && items.every(i=>i.cost!==null)?items.reduce((n,i)=>n+Math.round(require('../pos-math').cents(i.cost)*require('../pos-math').quantity(i.qty)/1000),0)/100:null;
+    return {...s,cost,profit:cost===null?null:Math.round((s.subtotal-cost)*100)/100};
+  });
+}
+app.get('/api/reports/sales', (req,res) => {
+  const sales=salesReportRows(req.query);
   const units=sales.reduce((sum,s)=>sum+db.prepare('SELECT COALESCE(SUM(qty),0) AS n FROM sale_items WHERE sale_id=?').get(s.id).n,0);
   res.json({totalSales:sales.reduce((sum,s)=>sum+s.total,0),count:sales.length,units,sales});
 });
 
 // Export reports (CSV / XLSX)
-app.get('/api/reports/sales/export', authenticateRequired, async (req, res) => {
-  const { start, end, employeeId, format } = req.query;
-  const where = [];
-  const params = [];
-  if (start) { where.push("date(s.created_at) >= date(?)"); params.push(start); }
-  if (end) { where.push("date(s.created_at) <= date(?)"); params.push(end); }
-  if (employeeId) { where.push('s.employee_name = (SELECT name FROM users WHERE id = ?)'); params.push(employeeId); }
-
-  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
-  const rows = db.prepare(`SELECT s.id, s.created_at, s.employee_name, s.payment_method, s.total FROM sales s ${whereSql} ORDER BY s.created_at DESC`).all(...params);
+app.get('/api/reports/sales/export', authenticateRequired, async (req, res, next) => {
+  try {
+  const { format } = req.query;
+  const rows=salesReportRows(req.query);
 
   if (format === 'xlsx') {
     const workbook = new ExcelJS.Workbook();
@@ -900,7 +875,12 @@ app.get('/api/reports/sales/export', authenticateRequired, async (req, res) => {
       { header: 'Fecha', key: 'created_at', width: 30 },
       { header: 'Empleado', key: 'employee_name', width: 25 },
       { header: 'Método', key: 'payment_method', width: 15 },
-      { header: 'Total', key: 'total', width: 12 }
+      { header: 'Descuento', key: 'discount', width: 12 },
+      { header: 'Subtotal neto', key: 'subtotal', width: 15 },
+      { header: 'IVA', key: 'tax', width: 12 },
+      { header: 'Total', key: 'total', width: 12 },
+      { header: 'Costo registrado', key: 'cost', width: 18 },
+      { header: 'Utilidad bruta estimada', key: 'profit', width: 24 }
     ];
     rows.forEach(r => sheet.addRow(r));
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -911,13 +891,14 @@ app.get('/api/reports/sales/export', authenticateRequired, async (req, res) => {
   }
 
   // Default CSV
-  let csv = 'ID,Fecha,Empleado,Pago,Total\n';
+  let csv = 'ID,Fecha,Empleado,Pago,Descuento,Subtotal neto,IVA,Total,Costo registrado,Utilidad bruta estimada\n';
   rows.forEach(r => {
-    csv += [r.id,r.created_at,r.employee_name,r.payment_method,r.total].map(value => { let text=String(value ?? ''); if(/^[=+@\-\t\r]/.test(text)) text="'"+text; return '"'+text.replace(/"/g,'""')+'"'; }).join(',')+'\n';
+    csv += [r.id,r.created_at,r.employee_name,r.payment_method,r.discount,r.subtotal,r.tax,r.total,r.cost,r.profit].map(value => { let text=String(value ?? ''); if(/^[=+@\-\t\r]/.test(text)) text="'"+text; return '"'+text.replace(/"/g,'""')+'"'; }).join(',')+'\n';
   });
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename="ventas.csv"');
   res.send(csv);
+  } catch(error) { next(error); }
 });
 
 app.post('/api/invoices/:saleId/email', rateLimit({windowMs:60000,max:5}), authenticateRequired, async (req, res) => {

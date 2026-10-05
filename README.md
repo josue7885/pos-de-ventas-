@@ -1,6 +1,6 @@
 # POS Control
 
-Punto de venta web con Node.js, Express y SQLite. El servidor guarda ventas, existencias, usuarios, mesas, pedidos y una caja compartida. Los navegadores sincronizan cada 3 segundos. Esta revisión recupera el código del servidor del archivo original y corrige los flujos de acceso, cobro y sincronización.
+Punto de venta web con Node.js, Express y SQLite. El servidor guarda ventas, existencias, usuarios, mesas, pedidos y una caja compartida. Incluye clientes, cotizaciones, documentos, recepción de mercancía y costos. Los navegadores sincronizan cada 3 segundos. Esta revisión recupera el código del servidor del archivo original y corrige los flujos de acceso, cobro y sincronización.
 
 ## Ejecutar en Windows (PowerShell)
 
@@ -89,4 +89,14 @@ El destino del respaldo debe ser nuevo y el de restauración no debe contener `p
 
 ### Pendientes de producto
 
-No se implementaron devoluciones fiscales, anulaciones con notas de crédito, descuentos autorizados, costeo por lotes, código de barras ni cajas independientes por terminal. Requieren definir sus reglas operativas y ampliar el modelo contable. Tampoco se certifica Hacienda, impresión física, entrega SMTP ni instaladores con estas pruebas.
+No se implementaron devoluciones fiscales, anulaciones con notas de crédito, costeo por lotes, impresión de etiquetas de códigos de barras ni cajas independientes por terminal. Requieren definir sus reglas operativas y ampliar el modelo contable. Tampoco se certifica Hacienda, impresión física, entrega SMTP ni instaladores con estas pruebas.
+
+## Mejoras de la versión compartida
+
+- **Documentos y cotizaciones:** búsqueda, filtros, ticket, PDF/JSON, correo manual y conversión de cotizaciones al carrito. Las cotizaciones duran 15 días y no cobran ni reservan inventario.
+- **Clientes:** directorio con búsqueda y edición, con datos completos guardados en el servidor.
+- **Inventario:** SKU/código único, entrada por lector con Enter, servicios, unidades fraccionarias, categorías, costos, mínimos, recepción e historial. Las entradas calculan costo promedio ponderado y registran la compra, incluido su IVA, sin duplicarla al reintentar.
+- **Precios y reportes:** descuentos/precios especiales autorizados con motivo, filtros por fecha UTC, pago y cajero, exportación y utilidad bruta estimada con costos históricos.
+- **Usuarios:** cuentas activas/inactivas, revocación inmediata de sesiones y protección del último administrador.
+
+Consulta [las reglas y límites de la integración](docs/MEJORAS_VERSION.md). Las nuevas pantallas mantienen los datos en el servidor; las operaciones pendientes de confirmación se recuperan sin registrar otra operación. Los costos antiguos sin capturar deben revisarse antes de usar la estimación de utilidad.
