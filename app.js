@@ -66,7 +66,7 @@ function ensureRestaurantState() {
   saveState();
 }
 
-const currency = (value) => new Intl.NumberFormat('es-SV', { style: 'currency', currency: 'USD' }).format(value || 0);
+const currency = (value) => new Intl.NumberFormat(state.companySettings.number_locale||'es-SV', { style: 'currency', currency: state.companySettings.currency_code||'USD' }).format(value || 0);
 
 const API_BASE = getApiUrl('').replace(/\/$/, '');
 
@@ -113,7 +113,7 @@ async function loadCompanySettings() {
     const settings = data.settings || data;
     state.companySettings = settings;
     applyCompanySettings(settings);
-    fillCompanySettingsForm(settings);
+    fillCompanySettingsForm(settings);applyBusinessConfiguration();
     saveState();
   } catch (error) {
     console.warn('No se pudo cargar la configuración de empresa:', error.message);
@@ -185,10 +185,11 @@ async function syncFromServer() {
   const userId = currentEmployee.id;
   const data = await apiRequest('/sync');
   if (seq !== syncSequence || !currentEmployee || currentEmployee.id !== userId) return;
-  const stamp=JSON.stringify([data.products,data.sales,data.shift,data.orders,data.user,data.rooms,data.tables,data.categories]);
+  const stamp=JSON.stringify([data.products,data.sales,data.shift,data.orders,data.user,data.rooms,data.tables,data.categories,data.settings]);
   if (stamp===lastSnapshot) { if(activeModule==='documents')refreshDocuments(); return; }
   lastSnapshot=stamp;
   currentEmployee=data.user;
+  if(data.settings){state.companySettings=data.settings;applyCompanySettings(data.settings);applyBusinessConfiguration();}
   state.products=data.products;state.categories=data.categories||[];
   state.sales=data.sales.map(s=>({...s,id:s.id,employeeName:s.employee_name,paymentMethod:s.payment_method,total:s.total,subtotal:s.subtotal,tax:s.tax,items:s.items.map(i=>({...i,id:i.product_id})),customerName:s.customer_name,invoiceNumber:s.invoice_number,discount:s.discount||0,createdAt:s.created_at,receivedAmount:s.received_amount,change:s.change_amount}));
   state.shift=data.shift;
@@ -209,7 +210,7 @@ function initOrderEventStream() {
   syncTimer=setInterval(() => syncFromServer().catch(error => {
     const badge=document.getElementById('shift-status');
     if (badge) badge.textContent='Sin sincronización';
-    if (error.status===401) expireSession();
+    if (error.status===401 || error.status===404) expireSession();
   }), 3000);
 }
 function stopSync() { clearInterval(syncTimer);syncTimer=null;++syncSequence;lastSnapshot=''; }
@@ -684,19 +685,19 @@ function printKitchenTicket(order) {
 }
 
 function openKitchenDisplay() {
- const popup = window.open('kitchen-display.html?type=kitchen', 'kitchenDisplay', 'width=1400,height=900,noopener');
+ const popup = window.open('kitchen-display.html?business='+encodeURIComponent(getBusinessId()), 'kitchenDisplay', 'width=1400,height=900,noopener');
  if (popup) popup.focus();
 }
 
 function openCustomerDisplay() {
- const popup = window.open('customer-display.html?type=customer', 'customerDisplay', 'width=1100,height=760,noopener');
+ const popup = window.open('customer-display.html?business='+encodeURIComponent(getBusinessId()), 'customerDisplay', 'width=1100,height=760,noopener');
  if (popup) popup.focus();
 }
 
 function renderNav() {
   const nav = document.getElementById('nav-menu');
   const visibleSections = {
-    admin: ['documents','pos', 'tables', 'orders', 'kitchen', 'inventory', 'cash', 'reports', 'users', 'settings'],
+    admin: ['businesses','documents','pos', 'tables', 'orders', 'kitchen', 'inventory', 'cash', 'reports', 'users', 'settings'],
     cajero: ['documents','pos', 'tables', 'orders', 'cash'],
     mesero: ['pos', 'tables', 'orders', 'kitchen'],
     cocina: ['kitchen'],
@@ -705,6 +706,7 @@ function renderNav() {
   };
 
   const modules = [
+    { id: 'businesses', label: 'Negocios' },
     { id: 'pos', label: 'Venta' },
     { id: 'tables', label: 'Mesas' },
     { id: 'orders', label: 'Órdenes' },
@@ -720,7 +722,7 @@ function renderNav() {
   const roles = currentEmployee ? visibleSections[currentEmployee.role] || [] : [];
 
   nav.innerHTML = modules
-    .filter((module) => roles.includes(module.id))
+    .filter((module) => roles.includes(module.id) && moduleEnabled(module.id))
     .map(
       (module) => `
         <button
@@ -792,6 +794,7 @@ function renderDashboardSummary() {
 
 function setActiveModule(moduleId) {
   if (!currentEmployee) return;
+  if(!moduleEnabled(moduleId))moduleId='pos';
   if (moduleId==='settings' && !canAccessExecutivePanel()) return;
   if (moduleId==='users' && !canManageUserAccounts()) return;
   activeModule = moduleId;
@@ -804,6 +807,8 @@ function setActiveModule(moduleId) {
   renderNav();
   if (moduleId === 'cash') renderCashPanel();
   if (moduleId === 'reports') renderReports();
+  if (moduleId === 'businesses') refreshBusinesses();
+  if (moduleId === 'settings') fillCompanySettingsForm(state.companySettings);
   if (moduleId === 'documents') refreshDocuments();
   if (moduleId === 'inventory') refreshInventoryHistory();
   if (moduleId === 'pos') renderDashboardSummary();
@@ -842,7 +847,7 @@ async function loginUser() {
 async function logoutUser() {
   if (saleInFlight) return alert('Espera la confirmación de la venta.');
   try { await apiRequest('/auth/logout',{method:'POST',body:'{}'}); }
-  catch(error) { if (error.status!==401) return alert('No se pudo cerrar la sesión en el servidor. Reintenta con conexión.'); }
+  catch(error) { if (error.status!==401 && error.status!==404) return alert('No se pudo cerrar la sesión en el servidor. Reintenta con conexión.'); }
   resetEnhancements();stopSync();currentEmployee=null;cart=[];pendingSale=null;sessionStorage.removeItem('pos_token');
   state=deepClone(DEFAULT_STATE);renderCart();showLogin();await fetchUsersFromServer();
 }
@@ -993,7 +998,7 @@ function clearCart() {
 
 let saleInFlight=false;
 let pendingSale=null;
-function pendingSaleKey() { return `pos_pending_sale:${API_BASE}:${currentEmployee.id}`; }
+function pendingSaleKey() { return `pos_pending_sale:${operationScope()}:${currentEmployee.id}`; }
 function restorePendingSale() {
   try { pendingSale=JSON.parse(localStorage.getItem(pendingSaleKey()) || 'null'); }
   catch (_) { pendingSale=null; }
@@ -1066,6 +1071,7 @@ function openProductForm(productId = null) {
   } else {
     document.getElementById('product-id').value = '';
     formTitle.textContent = 'Agregar producto';productEditStock=null;productEditVersion=null;
+    document.getElementById('product-type').value=state.companySettings.default_product_type||'producto';
   }
   updateProductTypeFields();
 }
@@ -1688,6 +1694,7 @@ async function deleteUser(id) {
 }
 
 function fillCompanySettingsForm(settings = {}) {
+  fillBusinessSettings(settings);
   const fieldIds = [
     'company_name', 'company_legal_name', 'company_nit', 'company_giro', 'company_address', 'company_department', 'company_municipality', 'company_phone', 'company_email', 'company_website',
     'server_base',
@@ -1748,6 +1755,7 @@ async function saveCompanySettings(event) {
     if (input) payload[key] = input.value;
   });
 
+  Object.assign(payload,readBusinessSettings());
   const logoInput = document.getElementById('setting-company_logo');
   if (logoInput && logoInput.files && logoInput.files[0]) {
     const file = logoInput.files[0];
@@ -1769,7 +1777,7 @@ async function persistCompanySettings(payload) {
     // A connection target is a device preference, not a shared business setting.
     const serverBase=payload.server_base;delete payload.server_base;
     const data=await apiRequest('/settings',{method:'PUT',headers:await executiveHeaders(),body:JSON.stringify(payload)});
-    state.companySettings=data.settings;applyCompanySettings(data.settings);fillCompanySettingsForm(data.settings);
+    state.companySettings=data.settings;applyCompanySettings(data.settings);fillCompanySettingsForm(data.settings);applyBusinessConfiguration();renderNav();renderCart();
     if (serverBase && serverBase.replace(/\/$/,'')!==getSavedApiBase()) {
       const url=new URL(serverBase);
       if (!['http:','https:'].includes(url.protocol)) throw new Error('URL de servidor inválida');
@@ -1974,8 +1982,7 @@ function initializeApp() {
     });
   }
 
-  loadCompanySettings();
-  fetchUsersFromServer();
+  initializeBusinesses();
 
 
   showLogin();

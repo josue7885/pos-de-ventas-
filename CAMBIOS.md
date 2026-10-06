@@ -1,10 +1,25 @@
 # Correcciones verificadas
 
+## Negocios y configuración
+
+- Negocios con cuentas, sesiones, ventas, clientes, inventario, caja y configuración separados; administración desde el negocio principal.
+- Perfiles de tienda, restaurante, servicios y mixto; módulos, moneda, formato numérico, impuestos, pagos, vigencia de cotizaciones y pie del comprobante configurables.
+- Selección por pestaña, recuperación de creación tras respuesta perdida y bloqueo de cambios mientras existan operaciones pendientes.
+- Respaldo verificado de todos los negocios y migración que conserva la base principal existente.
+- Moneda protegida después de registrar operaciones; identificación de negocio y moneda en exportaciones.
+- Dependencias del servidor: `proxy-addr` 2.0.8 y `xmlbuilder2` 4.0.3; se retiró la cadena antigua de `sprintf-js`. Auditorías de raíz y servidor sin vulnerabilidades reportadas al verificar esta entrega.
+
+Verificación de esta revisión: 36 pruebas aprobadas de API e interfaz DOM, incluidos recuperación de respuestas perdidas y respaldo/restauración multinegocio; recursos web preparados correctamente.
+
+Consulta [la guía multinegocio](docs/MULTINEGOCIO.md).
+
+## Backend y funciones comerciales
+
 Esta entrega incorpora el backend recuperado y las correcciones de acceso, ventas y sincronización que faltaban en la rama pública original.
 
 - Venta, partidas, inventario, comprobante y clave de reintento se guardan atómicamente; una respuesta perdida no duplica el cobro.
 - PIN con hash, roles, revocación de sesiones, archivos privados y secretos ocultos.
-- Caja e inventario compartidos por servidor; importes calculados en centavos.
+- Caja e inventario compartidos entre terminales de cada negocio; importes calculados en centavos.
 - Compras/gastos validados, cierres repetibles sin duplicar y períodos cerrados protegidos para nuevas compras/gastos.
 - Conteos con ajuste explícito y movimientos de inventario auditables.
 - Cocina/cliente con reconexión, contenido escapado y estados de pedido controlados.
@@ -15,7 +30,7 @@ Esta entrega incorpora el backend recuperado y las correcciones de acceso, venta
 
 La suite comprueba HTTP real con datos temporales, interfaz DOM, recuperación de cobros, concurrencia, persistencia, fallos de escritura, contabilidad, inventario, exportaciones y respaldos. No sustituye una prueba visual en Windows, impresión física, envío SMTP ni certificación de instaladores.
 
-No hay integración fiscal real: Hacienda responde 501. Devoluciones, notas de crédito, descuentos y nuevas funciones de costeo/códigos de barras quedan fuera de esta reparación; deben desarrollarse con sus reglas operativas. Los datos históricos incompletos requieren conciliación, no reparación automática inventando partidas.
+No hay integración fiscal real: Hacienda responde 501. Se incorporaron descuentos autorizados, SKU y costo promedio en recepción. Siguen pendientes devoluciones fiscales, notas de crédito, costeo por lotes e impresión de etiquetas. Los datos históricos incompletos requieren conciliación, no reparación automática inventando partidas.
 
 ## Abrir en Windows
 

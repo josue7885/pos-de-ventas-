@@ -1,6 +1,17 @@
 # POS Control
 
-Punto de venta web con Node.js, Express y SQLite. El servidor guarda ventas, existencias, usuarios, mesas, pedidos y una caja compartida. Incluye clientes, cotizaciones, documentos, recepción de mercancía y costos. Los navegadores sincronizan cada 3 segundos. Esta revisión recupera el código del servidor del archivo original y corrige los flujos de acceso, cobro y sincronización.
+Punto de venta web con Node.js, Express y SQLite. Permite administrar varios negocios con usuarios, ventas, inventario, clientes, caja y configuración independientes. Incluye perfiles para tiendas, restaurantes, servicios y negocios mixtos. Los navegadores sincronizan cada 3 segundos dentro del negocio seleccionado.
+
+## Varios negocios y configuración
+
+1. Entra como administrador del **Negocio principal** y abre **Negocios**.
+2. Crea un negocio con nombre, tipo, moneda y PIN de su administrador inicial (6 a 12 dígitos).
+3. Pulsa **Ingresar** y accede con la cuenta de ese negocio.
+4. En **Configuración**, ajusta los datos de empresa, impuesto, pagos, vigencia de cotizaciones, mensaje del comprobante y módulos. Guarda los cambios.
+
+El selector del acceso y el botón **Cambiar negocio** permiten pasar a otro negocio. Cada pestaña conserva su selección. Solo los administradores del principal pueden crear, renombrar o desactivar negocios; cada negocio gestiona sus propias cuentas. La instalación anterior se conserva como principal.
+
+La moneda se fija al registrar operaciones. Los perfiles proponen módulos; puedes ajustar mesas, cocina, creación de cotizaciones y recepción de mercancía individualmente. Desactivar módulos conserva sus registros anteriores. Consulta [la guía multinegocio](docs/MULTINEGOCIO.md) para reglas, respaldo y actualización.
 
 ## Ejecutar en Windows (PowerShell)
 
@@ -18,9 +29,9 @@ En Linux/macOS puedes definir `POS_ADMIN_PIN` como variable de entorno antes de 
 
 ## Datos y copias de seguridad
 
-Por defecto los datos se guardan en `server/pos.db` y la clave de sesión en `server/jwt.key`. `POS_DATA_DIR` permite usar otro directorio privado. No están incluidos en Git y no se sirven por HTTP. No ejecutes dos servidores sobre el mismo directorio: existe un bloqueo por proceso.
+Por defecto el negocio principal se guarda en `server/pos.db`, los adicionales en `server/businesses/<id>/pos.db` y la clave de sesión en `server/jwt.key`. `POS_DATA_DIR` permite usar otro directorio privado. No están incluidos en Git ni en los paquetes y no se sirven por HTTP. No ejecutes dos servidores sobre el mismo directorio: existe un bloqueo por proceso.
 
-Para respaldar, detén el servidor y copia el directorio de datos a un lugar seguro. Para restaurar, detén el servidor y coloca los archivos respaldados en el directorio elegido. Guarda una copia previa antes de usar una base antigua. El esquema se actualiza dentro de una transacción; se conservan cuentas y ventas existentes. Los PIN antiguos que estaban en texto se convierten a hashes. Cambia cualquier PIN de demostración que todavía exista en una base antigua.
+Para respaldar, detén el servidor y usa `npm run backup -- DIRECTORIO_NUEVO`; para restaurar, usa `npm run restore -- DIRECTORIO_RESPALDO` con un `POS_DATA_DIR` vacío. El respaldo incluye todos los negocios, incluso los desactivados. Guarda una copia previa antes de usar una base antigua. El esquema se actualiza dentro de una transacción; se conservan cuentas y ventas existentes. Los PIN antiguos que estaban en texto se convierten a hashes. Cambia cualquier PIN de demostración que todavía exista en una base antigua.
 
 Las ventas que únicamente estaban en el antiguo `localStorage` NO se importan automáticamente: exporta/respalda esa información antes de actualizar. No hay conciliación automática con ventas históricas del navegador; podrían duplicar registros del servidor. La interfaz nueva conserva una copia local de esos registros bajo `pos_control_state_v1:archive:...`, sin PINs ni configuración con secretos. La copia requiere conciliación manual y no se utiliza para cobrar.
 
@@ -37,8 +48,8 @@ El cliente usa el origen desde el que se abrió. El botón **Configurar servidor
 - Los precios, impuestos, cambio y existencias se calculan/validan en el servidor, con importes en centavos durante el cálculo.
 - Venta, partidas, existencias, comprobante, asiento y clave de reintento se guardan en una sola transacción. Los errores revierten todos esos cambios.
 - Si se pierde la respuesta del cobro, el cliente conserva la misma solicitud y su identificador. Pulsa **Cobrar venta** para recuperar el resultado; no crees otra venta para reemplazar una pendiente. La confirmación repetida devuelve la venta original.
-- Los rechazos del servidor no crean ventas locales. No se permite cobrar sin conexión. Un carrito pendiente bloquea modificaciones hasta resolver la operación. Si cambia el usuario, la operación pendiente queda asociada al usuario original y al servidor original.
-- La caja es compartida por esta instalación; no representa cajas independientes por terminal. Los cierres anteriores quedan en el servidor.
+- Los rechazos del servidor no crean ventas locales. No se permite cobrar sin conexión. Un carrito pendiente bloquea modificaciones hasta resolver la operación. Las operaciones pendientes quedan asociadas al servidor, negocio y usuario originales. El cambio de negocio exige confirmar primero los cobros, cotizaciones y recepciones pendientes.
+- La caja es compartida entre terminales del mismo negocio; cada negocio tiene su propia caja. No representa cajas independientes por terminal. Los cierres anteriores quedan en el servidor.
 - Stock, ventas, caja, mesas y pedidos provienen del servidor. Las pantallas de cocina/cliente requieren una sesión en ese navegador y se actualizan por consulta periódica autenticada.
 
 ## Alcance de comprobantes
@@ -51,7 +62,7 @@ El PDF es un **comprobante interno sin autorización fiscal**. La integración d
 npm test
 ```
 
-Las pruebas levantan servidores y bases temporales, incluyendo la interfaz en un DOM con HTTP real: acceso, roles, secretos, venta, reintentos simultáneos, falta de existencias, cierre de caja, cambios de usuarios, reinicio, persistencia y reversión ante errores de disco.
+Las pruebas levantan servidores y bases temporales, incluyendo la interfaz en un DOM con HTTP real: acceso, roles, secretos, venta, reintentos simultáneos, falta de existencias, cierre de caja, cambios de usuarios, reinicio, persistencia y reversión ante errores de disco. También verifican migración del principal, separación entre negocios, configuración, pestañas independientes y respaldo/restauración de varias bases.
 
 Para el recorrido de navegador (opcional, requiere Playwright y Chromium):
 
@@ -85,7 +96,7 @@ npm run restore -- "C:\Users\josue\Documents\respaldo-pos-nuevo"
 npm start
 ```
 
-El destino del respaldo debe ser nuevo y el de restauración no debe contener `pos.db`. Se comprueban SHA-256 e integridad SQLite. La restauración invalida sesiones y conserva la instalación anterior. Esta herramienta respalda la base; para conservar PDFs históricos externos copia también el directorio `invoices` del sistema anterior. Las nuevas copias siguen conteniendo datos de clientes y configuración: guárdalas con acceso restringido.
+El destino del respaldo debe ser nuevo y el de restauración debe estar vacío. Se comprueban SHA-256, integridad SQLite y la presencia de todas las bases registradas. La restauración invalida las sesiones de todos los negocios y conserva la instalación anterior. Para conservar PDFs históricos externos copia también el directorio `invoices` del sistema anterior. Las copias contienen datos de clientes y configuración: guárdalas con acceso restringido.
 
 ### Pendientes de producto
 
@@ -93,7 +104,7 @@ No se implementaron devoluciones fiscales, anulaciones con notas de crédito, co
 
 ## Mejoras de la versión compartida
 
-- **Documentos y cotizaciones:** búsqueda, filtros, ticket, PDF/JSON, correo manual y conversión de cotizaciones al carrito. Las cotizaciones duran 15 días y no cobran ni reservan inventario.
+- **Documentos y cotizaciones:** búsqueda, filtros, ticket, PDF/JSON, correo manual y conversión de cotizaciones al carrito. La vigencia predeterminada es de 15 días y se configura de 1 a 90 días por negocio. No cobran ni reservan inventario.
 - **Clientes:** directorio con búsqueda y edición, con datos completos guardados en el servidor.
 - **Inventario:** SKU/código único, entrada por lector con Enter, servicios, unidades fraccionarias, categorías, costos, mínimos, recepción e historial. Las entradas calculan costo promedio ponderado y registran la compra, incluido su IVA, sin duplicarla al reintentar.
 - **Precios y reportes:** descuentos/precios especiales autorizados con motivo, filtros por fecha UTC, pago y cajero, exportación y utilidad bruta estimada con costos históricos.

@@ -46,6 +46,32 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  assert.match(w.document.getElementById('inventory-purchases-body').textContent,/UI-REC-1/);
  w.document.getElementById('sales-report-payment').value='tarjeta';w.renderReports();assert.match(w.document.getElementById('sales-table-body').textContent,/No hay ventas/);
  w.document.getElementById('sales-report-payment').value='all';w.renderReports();
- assert.deepEqual(errors,[]);console.log('DOM + real HTTP OK: wrong PIN, login, shared shift, cent rounding, checkout, lost-response replay, second-client sync, users, SKU, fractional quantities, customers, quote conversion, inventory receipts and lost responses; no script errors.');
+ // A lost creation response recovers the same business. Switching tabs never mixes data.
+ w.setActiveModule('businesses');await w.refreshBusinesses();
+ for(const [id,value] of Object.entries({'business-name':'Servicios UI','business-type':'services','business-currency':'EUR','business-admin-name':'Dueño Servicios','business-admin-pin':'987654'}))w.document.getElementById(id).value=value;
+ loseOperation='/api/platform/businesses';await w.createBusiness({preventDefault(){}});
+ const creationKey=w.businessRequestKey();assert.ok(w.sessionStorage.getItem(creationKey));
+ // Recovery does not require entering the initial PIN again after the form was cleared.
+ w.document.getElementById('business-create-form').reset();assert.equal(w.document.getElementById('recover-business-btn').classList.contains('hidden'),false);
+ await w.recoverBusiness();assert.equal(w.sessionStorage.getItem(creationKey),null);
+ const childId=w.eval("businessDirectory.find(b=>b.name==='Servicios UI').id"),rootJournal=w.pendingSaleKey();
+ await w.switchBusiness(childId);assert.equal(w.eval('currentEmployee'),null);assert.equal(w.getBusinessId(),childId);
+ w.document.getElementById('pin-input').value='987654';await w.loginUser();
+ assert.equal(w.eval('currentEmployee.name'),'Dueño Servicios',alerts.join('\n'));assert.equal(w.eval('state.products.length'),0);assert.equal(w.eval('state.sales.length'),0);assert.notEqual(w.pendingSaleKey(),rootJournal);
+ assert.equal(w.document.querySelector('[data-module="tables"]'),null);assert.equal(w.document.querySelector('[data-module="businesses"]'),null);
+ assert.ok(w.document.getElementById('send-kitchen-btn').classList.contains('hidden'));
+ w.openProductForm();assert.equal(w.document.getElementById('product-type').value,'servicio');w.closeProductForm();
+ w.setActiveModule('settings');assert.equal(w.document.getElementById('setting-currency_code').value,'EUR');
+ w.document.getElementById('setting-tax_label').value='Impuesto UI';w.document.getElementById('setting-iva_rate').value='0';await w.saveCompanySettings({preventDefault(){}});
+ assert.equal(w.eval('state.companySettings.tax_label'),'Impuesto UI',alerts.join('\n'));assert.equal(w.eval('state.companySettings.iva_rate'),0);
+ await v.syncFromServer();assert.equal(v.getBusinessId(),'principal');assert.equal(v.eval('state.sales.length'),3);assert.equal(v.eval('state.companySettings.currency_code'),'USD');
+ await w.switchBusiness('principal');w.document.getElementById('pin-input').value='729184';await w.loginUser();assert.equal(w.eval('state.sales.length'),3);
+ // A delayed response body cannot populate a business selected after that request began.
+ const realFetch=w.fetch;let releaseBody;
+ const bodyGate=new Promise(resolve=>{releaseBody=resolve;});
+ w.fetch=async()=>({ok:true,json:async()=>{await bodyGate;return {settings:{company_name:'Respuesta anterior'}};}});
+ const delayed=await w.posFetch(base+'/api/settings'),reading=delayed.json();
+ w.setBusinessId(childId);w.setBusinessId('principal');releaseBody();await assert.rejects(reading,error=>error.status===409);w.fetch=realFetch;
+ assert.deepEqual(errors,[]);console.log('DOM + real HTTP OK: checkout, recovery, sync, inventory, documents, multibusiness creation, switching, configuration and tab isolation; no script errors.');
  }finally{first?.window.close();second?.window.close();if(server)await new Promise(resolve=>{server.once('exit',resolve);server.kill('SIGTERM')});fs.rmSync(dir,{recursive:true,force:true});}
 });

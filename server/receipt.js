@@ -2,7 +2,7 @@ const PDFDocument = require('pdfkit');
 const {cents,quantity}=require('../pos-math');
 function receiptDocument(profile, invoice, sale) {
   const doc = new PDFDocument({margin:40});
-  const quote=sale.kind==='quote', money=n=>'$'+Number(n||0).toFixed(2);
+  const quote=sale.kind==='quote', money=n=>new Intl.NumberFormat(profile.number_locale||'es-SV',{style:'currency',currency:profile.currency_code||'USD'}).format(Number(n||0));
   // Only embedded PNG/JPEG data is used; a receipt never fetches external images.
   const logo=/^data:image\/(?:png|jpe?g);base64,([a-zA-Z0-9+/=]+)$/.exec(profile.company_logo || '');
   if(logo && logo[1].length<1500000){try{doc.image(Buffer.from(logo[1],'base64'),doc.x,doc.y,{fit:[180,60]});doc.y+=70;}catch{ /* Keep the receipt usable if an old logo is invalid. */ }}
@@ -18,9 +18,10 @@ function receiptDocument(profile, invoice, sale) {
   }
   doc.moveDown().fontSize(12);
   if(sale.discount)doc.text(`Antes de descuento: ${money(sale.gross)}`).text(`Descuento (${sale.discount_percent}%): ${money(sale.discount)}`).fontSize(9).text(`Motivo: ${sale.discount_reason}`).fontSize(12);
-  doc.text(`Subtotal: ${money(sale.subtotal)}`).text(`IVA: ${money(sale.tax)}`).text(`Total: ${money(sale.total)}`);
+  doc.text(`Subtotal: ${money(sale.subtotal)}`).text(`${profile.tax_label||'IVA'}: ${money(sale.tax)}`).text(`Total: ${money(sale.total)}`);
   if(!quote && sale.payment_method)doc.text(`Pago: ${sale.payment_method}`).text(`Recibido: ${money(sale.received_amount)} · Cambio: ${money(sale.change_amount)}`);
   doc.moveDown().fontSize(9).text(quote?'Cotización sin cobro ni reserva de existencias. No es un documento fiscal.':'Comprobante interno sin autorización fiscal.');
+  if(profile.receipt_footer)doc.moveDown().fontSize(10).text(profile.receipt_footer);
   return doc;
 }
 function receiptBuffer(profile, invoice, sale) {

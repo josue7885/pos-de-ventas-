@@ -7,6 +7,7 @@ const PDFDocument = require('pdfkit');
 const { create } = require('xmlbuilder2');
 const dbPromise = require('./db');
 let db;
+const businessConfig=require('./business-config');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
@@ -28,7 +29,7 @@ app.use((req, res, next) => {
   if (!['GET','HEAD','OPTIONS'].includes(req.method) && req.headers.origin && req.headers.origin !== `${req.protocol}://${req.get('host')}` && !allowedOrigins.includes(req.headers.origin)) return res.status(403).json({ error: 'Origen no permitido' });
   next();
 });
-const publicFiles = ['index.html','style.css','app.js','app_utils.js','app_exec_pin.js','customer-display.html','kitchen-display.html','display.js','manifest.webmanifest','icon.svg','pos-math.js','enhancements.js'];
+const publicFiles = ['index.html','style.css','app.js','app_utils.js','app_exec_pin.js','customer-display.html','kitchen-display.html','display.js','manifest.webmanifest','icon.svg','pos-math.js','enhancements.js','business-ui.js'];
 app.get('/', (req,res) => res.sendFile(path.join(ROOT_DIR, 'index.html')));
 for (const file of publicFiles) app.get('/' + file, (req,res) => res.sendFile(path.join(ROOT_DIR, file)));
 const PORT = Number(process.env.PORT || 3000);
@@ -36,9 +37,11 @@ const secretPath = path.join(DATA_DIR, 'jwt.key');
 if (!process.env.JWT_SECRET && !fs.existsSync(secretPath)) fs.writeFileSync(secretPath, crypto.randomBytes(48).toString('hex'), { mode: 0o600, flag: 'wx' });
 const JWT_SECRET = process.env.JWT_SECRET || fs.readFileSync(secretPath, 'utf8').trim();
 if (JWT_SECRET.length < 32) throw new Error('JWT_SECRET debe tener al menos 32 caracteres.');
-const INVOICES_DIR = path.join(DATA_DIR, 'invoices');
-fs.mkdirSync(INVOICES_DIR, { recursive: true, mode: 0o700 });
-app.get('/api/health', (req,res) => res.json({ service: 'pos-control', ready: Boolean(db) }));
+const businesses=require('./businesses')(dbPromise,{directory:DATA_DIR,secret:JWT_SECRET});
+db=businesses.db;
+app.get('/api/businesses',async(req,res,next)=>{try{await businesses.ready;res.setHeader('Cache-Control','no-store');res.json({businesses:businesses.list(false),primaryId:'principal'});}catch(error){next(error);}});
+app.use('/api',businesses.middleware);
+app.get('/api/health', (req,res) => res.json({ service: 'pos-control', ready: businesses.isReady() }));
 app.use('/api', (req,res,next) => {
   res.setHeader('Cache-Control', 'no-store');
   if ((req.method === 'GET' && ['/settings','/users','/health'].includes(req.path)) || (req.method === 'POST' && req.path === '/auth/login')) return next();
@@ -74,13 +77,13 @@ function ensureOpenPeriod(date) {
 
 // Rate limiter for auth endpoints
 const authLimiter = rateLimit({ windowMs: 60 * 1000, max: 10 });
-const execLimiter = rateLimit({ windowMs:60*1000, max:10, keyGenerator:req=>String(req.user?.id || req.ip) });
+const execLimiter = rateLimit({ windowMs:60*1000, max:10, keyGenerator:req=>req.businessId+':'+String(req.user?.id || req.ip) });
 const SETTINGS_KEYS = [
   'company_name', 'company_legal_name', 'company_nit', 'company_giro', 'company_address', 'company_department', 'company_municipality',
   'company_phone', 'company_email', 'company_website', 'company_logo', 'server_base', 'hacienda_env', 'hacienda_url', 'hacienda_user', 'hacienda_password',
   'hacienda_token', 'hacienda_certificate_path', 'hacienda_certificate_password', 'invoice_prefix', 'invoice_serie', 'invoice_next_number',
   'invoice_email_enabled', 'smtp_host', 'smtp_port', 'smtp_secure', 'smtp_user', 'smtp_password', 'smtp_from', 'smtp_from_name',
-  'hacienda_mode', 'business_active', 'iva_rate'
+  'hacienda_mode', 'business_active', 'iva_rate', ...Object.keys(businessConfig.defaults)
 ];
 
 function readSettings() {
@@ -91,6 +94,8 @@ function readSettings() {
 function buildCompanyProfile() {
   const settings = readSettings();
   return {
+    ...businessConfig.profile(settings),
+    business_id:businesses.current().id,
     company_name: settings.company_name || 'POS Control',
     company_legal_name: settings.company_legal_name || '',
     company_nit: settings.company_nit || '',
@@ -156,6 +161,7 @@ function addVatBookEntry(invoice) {
 
 function buildPdfHeader(doc, title, periodStart, periodEnd) {
   const settings = buildCompanyProfile();
+  doc.fontSize(10).text('Moneda: '+settings.currency_code);
   if (settings.company_logo && String(settings.company_logo).startsWith('data:')) {
    try {
      const parts = String(settings.company_logo).split(',');
@@ -231,12 +237,12 @@ function generateToken(user) {
   const sid = crypto.randomUUID();
   db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
   db.prepare('INSERT INTO sessions (id,user_id,expires_at) VALUES (?,?,?)').run(sid,user.id,Date.now()+8*60*60*1000);
-  return jwt.sign({ id:user.id, version:user.token_version, sid }, JWT_SECRET, { expiresIn:'8h', algorithm:'HS256' });
+  return jwt.sign({ id:user.id, version:user.token_version, sid, businessId:businesses.current().id }, JWT_SECRET, { expiresIn:'8h', algorithm:'HS256' });
 }
 function safeSettings(user) {
   const settings = buildCompanyProfile();
   for (const key of ['hacienda_password','hacienda_token','hacienda_certificate_password','smtp_password']) delete settings[key];
-  if (!user || !['admin','gerente'].includes(user.role)) return { company_name:settings.company_name, company_logo:settings.company_logo, iva_rate:settings.iva_rate, executive_pin_set:settings.executive_pin_set };
+  if (!user || !['admin','gerente'].includes(user.role)) return { company_name:settings.company_name, company_logo:settings.company_logo, iva_rate:settings.iva_rate, executive_pin_set:settings.executive_pin_set, business_id:settings.business_id,...businessConfig.profile(readSettings()) };
   return settings;
 }
 
@@ -253,28 +259,30 @@ function nextInvoiceData() {
   return { number, nextNumber: next };
 }
 
+function sessionCookieName(){const id=businesses.current().id;return id==='principal'?'pos_session':'pos_session_'+id;}
 function authenticateOptional(req,res,next) {
-  if (!req.headers.authorization && !/(?:^|;\s*)pos_session=/.test(req.headers.cookie || '')) return next();
+  if (!req.headers.authorization && !new RegExp('(?:^|;\\s*)'+sessionCookieName()+'=').test(req.headers.cookie || '')) return next();
   return authenticateRequired(req,res,next);
 }
 function authenticateRequired(req,res,next) {
   try {
     const bearer = /^Bearer ([^ ]+)$/.exec(req.headers.authorization || '');
-    const cookie = /(?:^|;\s*)pos_session=([^;]+)/.exec(req.headers.cookie || '');
+    const cookie = new RegExp('(?:^|;\\s*)'+sessionCookieName()+'=([^;]+)').exec(req.headers.cookie || '');
     const token = bearer ? bearer[1] : cookie && cookie[1];
     if (!token) return res.status(401).json({ error:'Inicia sesión para continuar.' });
     const payload = jwt.verify(token,JWT_SECRET,{ algorithms:['HS256'] });
+    if((payload.businessId || 'principal')!==req.businessId)return res.status(401).json({error:'La sesión pertenece a otro negocio'});
     const user = db.prepare('SELECT id,name,role,token_version FROM users WHERE id=? AND active=1').get(payload.id);
     const session = db.prepare('SELECT id FROM sessions WHERE id=? AND user_id=? AND expires_at>?').get(payload.sid,payload.id,Date.now());
     if (!user || !session || user.token_version !== payload.version) return res.status(401).json({ error:'Sesión vencida. Inicia sesión nuevamente.' });
-    req.user = { id:user.id,name:user.name,role:user.role };
+    req.user = { id:user.id,name:user.name,role:user.role,businessId:req.businessId };
     req.sessionId = payload.sid;
     return next();
   } catch (_) { return res.status(401).json({ error:'Sesión inválida.' }); }
 }
 app.post('/api/auth/logout', (req,res) => {
   db.prepare('DELETE FROM sessions WHERE id=?').run(req.sessionId);
-  res.clearCookie('pos_session', { path:'/api' });
+  res.clearCookie(sessionCookieName(), { path:'/api' });
   res.json({ success:true });
 });
 app.post('/api/auth/executive-pin', execLimiter, (req,res) => {
@@ -329,7 +337,7 @@ app.put('/api/settings', execLimiter, authenticateRequired, (req, res) => {
   // Require executive PIN in addition to role if it's configured
   if (!requireExecutivePin(req, res)) return;
 
-  const incoming = req.body || {};
+  const incoming = {...(req.body || {}),...businessConfig.validate(req.body || {},db)};
   if(incoming.business_active === true || incoming.business_active === 'true') return res.status(501).json({error:'No se puede activar facturación fiscal: el conector no está implementado.'});
   const keys = Object.keys(incoming).filter((key) => SETTINGS_KEYS.includes(key));
   if (keys.length === 0) return res.status(400).json({ error: 'No hay campos válidos para actualizar' });
@@ -367,9 +375,10 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
     return res.status(401).json({ error: 'Credenciales inválidas' });
   }
 
+  if(user.role==='cocina' && !buildCompanyProfile().kitchen_enabled)return res.status(403).json({error:'La cocina está desactivada para este negocio'});
   const token = generateToken(user);
-  res.cookie('pos_session',token,{ httpOnly:true, sameSite:'strict', secure:req.secure, path:'/api', maxAge:8*60*60*1000 });
-  res.json({ user: { id: user.id, name: user.name, role: user.role }, token });
+  res.cookie(sessionCookieName(),token,{ httpOnly:true, sameSite:'strict', secure:req.secure, path:'/api', maxAge:8*60*60*1000 });
+  res.json({ user: { id: user.id, name: user.name, role: user.role,businessId:req.businessId }, token });
 });
 
 app.get('/api/products', authenticateOptional, (req, res) => {
@@ -470,7 +479,16 @@ app.delete('/api/users/:id', execLimiter, authenticateRequired, (req, res) => {
   res.json({ success: true });
 });
 
-require('./core')(app, () => db, { profile:buildCompanyProfile, nextInvoiceData, addVatBookEntry, requireAdminOrManager });
+businesses.register(app,{requireExecutivePin,limiter:execLimiter});
+app.use('/api',(req,res,next)=>{
+ const cfg=buildCompanyProfile();
+ const kind=req.path==='/quotes'?'quote':req.path==='/inventory/receive'?'receive':null;
+ const replay=kind && req.method==='POST' && db.prepare('SELECT request_key FROM operation_requests WHERE request_key=? AND kind=? AND user_id=?').get(req.get('Idempotency-Key')||'',kind,req.user.id);
+ const denied=(!cfg.tables_enabled && /^\/(tables|rooms)(\/|$)/.test(req.path)) || (!cfg.kitchen_enabled && /^\/orders(\/|$)/.test(req.path)) || (!cfg.quotes_enabled && !replay && req.method==='POST' && req.path==='/quotes') || (!cfg.receiving_enabled && !replay && req.method==='POST' && req.path==='/inventory/receive');
+ if(denied)return res.status(403).json({error:'Esta función está desactivada para el negocio'});
+ next();
+});
+require('./core')(app, () => db, { profile:buildCompanyProfile, nextInvoiceData, addVatBookEntry, requireAdminOrManager,safeSettings });
 require('./extensions')(app, () => db, {profile:buildCompanyProfile,requireAdminOrManager,ensureOpenPeriod});
 
 app.get('/api/purchases', authenticateRequired, (req, res) => {
@@ -865,7 +883,8 @@ app.get('/api/reports/sales', (req,res) => {
 app.get('/api/reports/sales/export', authenticateRequired, async (req, res, next) => {
   try {
   const { format } = req.query;
-  const rows=salesReportRows(req.query);
+  const company=buildCompanyProfile();
+  const rows=salesReportRows(req.query).map(row=>({...row,business:company.company_name,currency:company.currency_code}));
 
   if (format === 'xlsx') {
     const workbook = new ExcelJS.Workbook();
@@ -880,7 +899,9 @@ app.get('/api/reports/sales/export', authenticateRequired, async (req, res, next
       { header: 'IVA', key: 'tax', width: 12 },
       { header: 'Total', key: 'total', width: 12 },
       { header: 'Costo registrado', key: 'cost', width: 18 },
-      { header: 'Utilidad bruta estimada', key: 'profit', width: 24 }
+      { header: 'Utilidad bruta estimada', key: 'profit', width: 24 },
+      { header: 'Negocio', key: 'business', width: 30 },
+      { header: 'Moneda', key: 'currency', width: 10 }
     ];
     rows.forEach(r => sheet.addRow(r));
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -891,9 +912,9 @@ app.get('/api/reports/sales/export', authenticateRequired, async (req, res, next
   }
 
   // Default CSV
-  let csv = 'ID,Fecha,Empleado,Pago,Descuento,Subtotal neto,IVA,Total,Costo registrado,Utilidad bruta estimada\n';
+  let csv = 'ID,Fecha,Empleado,Pago,Descuento,Subtotal neto,IVA,Total,Costo registrado,Utilidad bruta estimada,Negocio,Moneda\n';
   rows.forEach(r => {
-    csv += [r.id,r.created_at,r.employee_name,r.payment_method,r.discount,r.subtotal,r.tax,r.total,r.cost,r.profit].map(value => { let text=String(value ?? ''); if(/^[=+@\-\t\r]/.test(text)) text="'"+text; return '"'+text.replace(/"/g,'""')+'"'; }).join(',')+'\n';
+    csv += [r.id,r.created_at,r.employee_name,r.payment_method,r.discount,r.subtotal,r.tax,r.total,r.cost,r.profit,r.business,r.currency].map(value => { let text=String(value ?? ''); if(/^[=+@\-\t\r]/.test(text)) text="'"+text; return '"'+text.replace(/"/g,'""')+'"'; }).join(',')+'\n';
   });
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename="ventas.csv"');
@@ -928,8 +949,7 @@ app.use((error,req,res,next) => {
   res.status(error.status || 500).json({ error:error.status ? error.message : 'Error del servidor. No se confirmó la operación.' });
 });
 let httpServer;
-dbPromise.then(resolved => {
-  db=resolved;
+businesses.ready.then(() => {
   httpServer=app.listen(PORT, process.env.POS_HOST || '127.0.0.1', () => console.log(`POS server listening on port ${httpServer.address().port}`));
   httpServer.on('error', error => { console.error(error.message); process.exit(1); });
 }).catch(error => { console.error('Error inicializando base de datos:',error.message); process.exit(1); });

@@ -15,3 +15,5 @@ android/
 www/
 dist/
 coverage/
+
+server/businesses/

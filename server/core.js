@@ -3,7 +3,7 @@ const {receiptDocument}=require('./receipt');
 const { create } = require('xmlbuilder2');
 const commerce=require('./commerce');
 
-module.exports = function registerCore(app, getDb, { profile, nextInvoiceData, addVatBookEntry, requireAdminOrManager }) {
+module.exports = function registerCore(app, getDb, { profile, nextInvoiceData, addVatBookEntry, requireAdminOrManager,safeSettings }) {
   const db = () => getDb();
   const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
   const cents = (value, label = 'Monto') => {
@@ -36,7 +36,7 @@ module.exports = function registerCore(app, getDb, { profile, nextInvoiceData, a
   app.get('/api/sync', handle((req, res) => {
     const financial = ['admin', 'gerente', 'cajero', 'contador'].includes(req.user.role);
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ categories:db().prepare('SELECT name FROM inventory_categories ORDER BY name').all().map(r=>r.name), products: db().prepare('SELECT * FROM products ORDER BY id').all(),
+    res.json({ settings:safeSettings(req.user),businessId:req.businessId,categories:db().prepare('SELECT name FROM inventory_categories ORDER BY name').all().map(r=>r.name), products: db().prepare('SELECT * FROM products ORDER BY id').all(),
       sales: financial ? db().prepare('SELECT id FROM sales ORDER BY id DESC').all().map(r => saleFor(r.id)) : [],
       shift: financial ? shiftState() : { isOpen: false },
       orders: db().prepare('SELECT * FROM orders ORDER BY id DESC').all().map(o => ({ ...o, items: itemsFor('order_items', 'order_id', o.id) })),
@@ -76,7 +76,7 @@ module.exports = function registerCore(app, getDb, { profile, nextInvoiceData, a
     })();
     res.json({ shift: shiftState() });
   }));
-  const validProduct=commerce.product;
+  const validProduct=body=>commerce.product({type:profile().default_product_type,...body});
   app.post('/api/products', handle((req, res) => {
     if (!requireAdminOrManager(req, res)) return;
     const p = validProduct(req.body);
@@ -126,7 +126,8 @@ module.exports = function registerCore(app, getDb, { profile, nextInvoiceData, a
       }
       const shift = db().prepare('SELECT id FROM shifts WHERE closed_at IS NULL').get();
       if (!shift) fail(409, 'Debe abrir la caja antes de vender.');
-      if (!['efectivo', 'tarjeta', 'transferencia'].includes(input.paymentMethod)) fail(400, 'Método de pago inválido.');
+      if (!profile().payment_methods.includes(input.paymentMethod)) fail(400, 'Método de pago inválido.');
+      if(input.currency && input.currency!==profile().currency_code)fail(409,'La moneda cambió. Revisa el carrito.');
       const calculated=commerce.checkout(db(),input,req.user,Number(profile().iva_rate));
       const {items,totals,percent,reason}=calculated;
       const subtotal=cents(totals.subtotal),tax=cents(totals.tax),total=cents(totals.total);

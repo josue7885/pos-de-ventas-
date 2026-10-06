@@ -18,7 +18,7 @@ function renderCustomerDirectory(selected=document.getElementById('customer-sele
  select.replaceChildren(new Option('Cliente general / consumidor final',''),...matches.map(c=>new Option(`${c.full_name} · ${c.nit||c.phone||'Sin documento'}`,String(c.id))));select.value=selected;
 }
 async function trackedOperation(kind,path,payload){
- const key=`pos_operation:${API_BASE}:${currentEmployee.id}:${kind}`;
+ const key=`pos_operation:${operationScope()}:${currentEmployee.id}:${kind}`;
  let operation;
  try{operation=JSON.parse(localStorage.getItem(key)||'null');}catch{throw Error('El registro pendiente está dañado. Conserva los datos y solicita revisión.');}
  if(!operation && payload===null)throw Error('No hay una operación pendiente.');
@@ -30,7 +30,7 @@ async function trackedOperation(kind,path,payload){
   refreshPendingOperations();throw error;
  }
 }
-function cartPayload(){return {...getCustomerPayloadFromForm(),...getCartTotals(),discountPercent:Number(document.getElementById('billing-discount-percent')?.value||0),discountReason:document.getElementById('billing-discount-reason')?.value||'',quoteId:selectedQuoteId,items:cart.map(i=>({id:i.id,name:i.name,qty:i.qty,price:i.price,catalogPrice:i.catalogPrice,priceReason:i.priceReason}))};}
+function cartPayload(){return {currency:state.companySettings.currency_code||'USD',...getCustomerPayloadFromForm(),...getCartTotals(),discountPercent:Number(document.getElementById('billing-discount-percent')?.value||0),discountReason:document.getElementById('billing-discount-reason')?.value||'',quoteId:selectedQuoteId,items:cart.map(i=>({id:i.id,name:i.name,qty:i.qty,price:i.price,catalogPrice:i.catalogPrice,priceReason:i.priceReason}))};}
 async function saveQuoteFromCart(){
  if(operationLocked())return alert('Confirma primero la venta pendiente.');
  if(!currentEmployee || !['admin','gerente','cajero'].includes(currentEmployee.role))return alert('No tienes permiso para crear cotizaciones.');
@@ -178,7 +178,7 @@ function initEnhancements(){
 
 function refreshPendingOperations(){
  const panel=document.getElementById('operation-recovery-panel');if(!panel)return;
- const pending=currentEmployee?['quote','receive'].filter(kind=>localStorage.getItem(`pos_operation:${API_BASE}:${currentEmployee.id}:${kind}`)):[];
+ const pending=currentEmployee?['quote','receive'].filter(kind=>localStorage.getItem(`pos_operation:${operationScope()}:${currentEmployee.id}:${kind}`)):[];
  panel.classList.toggle('hidden',!pending.length);
  panel.innerHTML=pending.length?'<p>Hay operaciones pendientes de confirmar con el servidor. Recupera su resultado antes de registrarlas de nuevo.</p>'+pending.map(kind=>`<button type="button" class="primary-btn small" data-recover="${kind}">Recuperar ${kind==='quote'?'cotización':'entrada de inventario'}</button>`).join(''):'';
 }

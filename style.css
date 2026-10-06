@@ -422,6 +422,8 @@ textarea:focus {
 
 .topbar-status {
   display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
   align-items: center;
   gap: 0.75rem;
 }
@@ -2585,3 +2587,10 @@ button:disabled {
     grid-column: auto;
   }
 }
+
+#active-business-name {
+  max-width: 18rem;
+  overflow-wrap: anywhere;
+}
+#businesses-list td { overflow-wrap: anywhere; }
+#businesses-list button { margin: 0.2rem; }

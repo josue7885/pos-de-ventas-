@@ -19,11 +19,11 @@ module.exports=function(app,getDb,{profile,requireAdminOrManager,ensureOpenPerio
   const sale=db().prepare('SELECT s.*,i.number FROM sales s JOIN invoices i ON i.sale_id=s.id WHERE s.id=?').get(id);
   if(!sale)fail(404,'Comprobante no encontrado');
   const items=db().prepare('SELECT * FROM sale_items WHERE sale_id=? ORDER BY id').all(id);
-  return {...sale,kind:'sale',items,fiscalStatus:'NOT_AUTHORIZED'};
+  return {...sale,kind:'sale',items,business_id:profile().business_id,currency_code:profile().currency_code,fiscalStatus:'NOT_AUTHORIZED'};
  }
  function quoteDocument(id) {
   const row=db().prepare('SELECT * FROM quotes WHERE id=?').get(id);if(!row)fail(404,'Cotización no encontrada');
-  return {...JSON.parse(row.snapshot),id:row.id,number:'COT-'+String(row.id).padStart(6,'0'),kind:'quote',created_at:row.created_at,valid_until:row.valid_until,converted_sale_id:row.converted_sale_id,fiscalStatus:'NOT_AUTHORIZED'};
+  return {currency_code:profile().currency_code,...JSON.parse(row.snapshot),business_id:profile().business_id,id:row.id,number:'COT-'+String(row.id).padStart(6,'0'),kind:'quote',created_at:row.created_at,valid_until:row.valid_until,converted_sale_id:row.converted_sale_id,fiscalStatus:'NOT_AUTHORIZED'};
  }
  app.get('/api/documents',handle((req,res)=>{
   documentAccess(req);
@@ -44,9 +44,9 @@ module.exports=function(app,getDb,{profile,requireAdminOrManager,ensureOpenPerio
   writer(req);
   const result=once(req,'quote',()=>{
    const value=commerce.checkout(db(),req.body,req.user,Number(profile().iva_rate),{quote:true});
-   const now=new Date(),until=new Date(now.getTime()+15*24*60*60*1000);
+   const now=new Date(),until=new Date(now.getTime()+profile().quote_validity_days*24*60*60*1000);
    const customer=String(req.body.customerName||'Cliente general').slice(0,200);
-   const snapshot={...value.totals,discount_percent:value.percent,discount_reason:value.reason,customer_name:customer,customer_nit:String(req.body.customerNit||'CF').slice(0,40),customer_email:String(req.body.customerEmail||'').slice(0,254),customer_phone:String(req.body.customerPhone||'').slice(0,40),customer_address:String(req.body.customerAddress||'').slice(0,1000),customer_department:String(req.body.customerDepartment||'').slice(0,100),customer_municipality:String(req.body.customerMunicipality||'').slice(0,100),customer_giro:String(req.body.customerGiro||'').slice(0,200),document_type:req.body.documentType==='credito_fiscal'?'credito_fiscal':'consumidor_final',employee_name:req.user.name,items:value.items.map(it=>({...it,product_id:it.id,catalog_price:it.catalogPrice,price_reason:it.priceReason}))};
+   const snapshot={currency_code:profile().currency_code,...value.totals,discount_percent:value.percent,discount_reason:value.reason,customer_name:customer,customer_nit:String(req.body.customerNit||'CF').slice(0,40),customer_email:String(req.body.customerEmail||'').slice(0,254),customer_phone:String(req.body.customerPhone||'').slice(0,40),customer_address:String(req.body.customerAddress||'').slice(0,1000),customer_department:String(req.body.customerDepartment||'').slice(0,100),customer_municipality:String(req.body.customerMunicipality||'').slice(0,100),customer_giro:String(req.body.customerGiro||'').slice(0,200),document_type:req.body.documentType==='credito_fiscal'?'credito_fiscal':'consumidor_final',employee_name:req.user.name,items:value.items.map(it=>({...it,product_id:it.id,catalog_price:it.catalogPrice,price_reason:it.priceReason}))};
    return db().prepare('INSERT INTO quotes(user_id,created_at,valid_until,snapshot) VALUES (?,?,?,?)').run(req.user.id,now.toISOString(),until.toISOString(),JSON.stringify(snapshot)).lastInsertRowid;
   });res.json({quote:quoteDocument(result.id),replayed:result.replayed});
  }));

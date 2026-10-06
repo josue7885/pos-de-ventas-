@@ -18,6 +18,8 @@
         </div>
 
         <form id="login-form" class="auth-form">
+          <label class="field-label" for="business-select">Negocio</label>
+          <select id="business-select" class="field-input"><option value="principal">Negocio principal</option></select>
           <label class="field-label" for="employee-select">Usuario</label>
           <select id="employee-select" class="field-input" autocomplete="username" required>
             <option value="">Cargando usuarios...</option>
@@ -63,7 +65,7 @@
             <p class="eyebrow">Usuario activo</p>
             <h2 id="user-name">Empleado</h2>
           </div>
-          <div class="topbar-status">
+          <div class="topbar-status"><strong id="active-business-name">Negocio principal</strong><button id="switch-business-btn" class="ghost-btn small" type="button">Cambiar negocio</button>
             <span id="user-role" class="role-badge">Rol</span>
             <span id="shift-status" class="status-badge neutral">Caja cerrada</span>
           </div>
@@ -71,6 +73,21 @@
 
         <div id="operation-recovery-panel" class="panel hidden" role="status"></div>
 
+        <section id="module-businesses" class="module hidden">
+          <div class="panel"><h3>Administrar negocios</h3><p>Cada negocio conserva sus propios usuarios, caja, productos, ventas y configuración. Para ingresar se requiere una cuenta de ese negocio.</p>
+            <div class="table-wrap"><table><thead><tr><th>Negocio</th><th>Acceso</th><th>Acciones</th></tr></thead><tbody id="businesses-list"></tbody></table></div>
+          </div>
+          <div class="panel"><h3>Nuevo negocio</h3><form id="business-create-form" class="product-form">
+            <label for="business-name">Nombre</label><input id="business-name" maxlength="100" required />
+            <label for="business-type">Tipo inicial</label><select id="business-type"></select>
+            <label for="business-currency">Moneda</label><select id="business-currency"></select>
+            <label for="business-admin-name">Administrador inicial</label><input id="business-admin-name" value="Administrador" maxlength="100" required />
+            <label for="business-admin-pin">PIN inicial del nuevo negocio</label><input id="business-admin-pin" type="password" inputmode="numeric" pattern="[0-9]{6,12}" minlength="6" maxlength="12" autocomplete="new-password" required />
+            <p>El perfil inicial habilita módulos adecuados. Después puedes ajustar el impuesto, pagos y módulos en la Configuración del nuevo negocio.</p>
+            <button id="create-business-btn" class="primary-btn" type="submit">Crear negocio</button>
+            <button id="recover-business-btn" class="ghost-btn hidden" type="button">Consultar creación pendiente</button>
+          </form></div>
+        </section>
         <section id="module-pos" class="module active">
           <div id="admin-hero" class="admin-hero panel">
             <div class="hero-copy">
@@ -111,19 +128,19 @@
               <div class="order-summary">
                 <div class="summary-row">
                   <span>Subtotal</span>
-                  <strong>$<span id="subtotal-value">0.00</span></strong>
+                  <strong><span class="currency-code">USD</span> <span id="subtotal-value">0.00</span></strong>
                 </div>
                 <div class="summary-row">
                   <span>Descuento</span>
-                  <strong>-$<span id="discount-value">0.00</span></strong>
+                  <strong>-<span class="currency-code">USD</span> <span id="discount-value">0.00</span></strong>
                 </div>
                 <div class="summary-row">
-                  <span>IVA</span>
-                  <strong>$<span id="tax-value">0.00</span></strong>
+                  <span id="sale-tax-label">IVA</span>
+                  <strong><span class="currency-code">USD</span> <span id="tax-value">0.00</span></strong>
                 </div>
                 <div class="summary-row total-row">
                   <span>Total</span>
-                  <strong>$<span id="total-value">0.00</span></strong>
+                  <strong><span class="currency-code">USD</span> <span id="total-value">0.00</span></strong>
                 </div>
               </div>
 
@@ -139,11 +156,11 @@
                 <div class="quick-sale-summary">
                  <div>
                    <small>Subtotal</small>
-                   <strong>$<span id="ticket-subtotal-mini">0.00</span></strong>
+                   <strong><span class="currency-code">USD</span> <span id="ticket-subtotal-mini">0.00</span></strong>
                  </div>
                  <div>
                    <small>Total</small>
-                   <strong>$<span id="ticket-total-mini">0.00</span></strong>
+                   <strong><span class="currency-code">USD</span> <span id="ticket-total-mini">0.00</span></strong>
                  </div>
                 </div>
 
@@ -462,6 +479,25 @@
             </div>
 
             <form id="company-settings-form" class="settings-form">
+              <div class="settings-grid"><div class="settings-group"><h4>Operación del negocio</h4>
+                <label for="setting-business_type">Tipo de negocio</label><select id="setting-business_type"></select><button id="apply-business-profile" type="button" class="ghost-btn small">Usar módulos sugeridos para este tipo</button>
+                <label for="setting-currency_code">Moneda (se fija al registrar operaciones)</label><select id="setting-currency_code"></select>
+                <label for="setting-number_locale">Formato de números</label><select id="setting-number_locale"></select>
+                <label for="setting-tax_label">Nombre del impuesto</label><input id="setting-tax_label" maxlength="30" value="IVA" required />
+                <label for="setting-default_product_type">Tipo predeterminado de artículo</label><select id="setting-default_product_type"><option value="producto">Producto con existencias</option><option value="servicio">Servicio</option></select>
+                <label for="setting-quote_validity_days">Vigencia de cotizaciones (días)</label><input id="setting-quote_validity_days" type="number" min="1" max="90" value="15" required />
+                <label for="setting-receipt_footer">Mensaje al pie del comprobante</label><textarea id="setting-receipt_footer" maxlength="300"></textarea>
+              </div><div class="settings-group"><h4>Módulos y pagos</h4>
+                <label><input id="setting-tables_enabled" type="checkbox" checked /> Mesas y salones</label>
+                <label><input id="setting-kitchen_enabled" type="checkbox" checked /> Pedidos y cocina</label>
+                <label><input id="setting-quotes_enabled" type="checkbox" checked /> Crear cotizaciones</label>
+                <label><input id="setting-receiving_enabled" type="checkbox" checked /> Recepción de mercancía</label>
+                <p>Las funciones desactivadas también se bloquean en el servidor. Los documentos históricos se conservan.</p>
+                <label><input data-enabled-payment type="checkbox" value="efectivo" checked /> Efectivo</label>
+                <label><input data-enabled-payment type="checkbox" value="tarjeta" checked /> Tarjeta</label>
+                <label><input data-enabled-payment type="checkbox" value="transferencia" checked /> Transferencia</label>
+                <p>El impuesto se suma al subtotal. Su tasa se configura en Facturación. Las fechas de reportes y cierres siguen usando UTC.</p>
+              </div></div>
               <div class="settings-grid">
                 <div class="settings-group">
                   <h4>Empresa</h4>
@@ -823,6 +859,7 @@
     <script src="app_utils.js"></script>
     <script src="pos-math.js"></script>
     <script src="enhancements.js"></script>
+    <script src="business-ui.js"></script>
     <script src="app.js"></script>
     <script src="app_exec_pin.js"></script>
   </body>

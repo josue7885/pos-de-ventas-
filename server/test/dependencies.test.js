@@ -8,9 +8,6 @@ test('patched XML dependency serializes receipt text without interpreting markup
  assert.match(xml,/A &amp; B &lt;client&gt;/);
  const parsed=create(xml).node;
  assert.equal(parsed.getElementsByTagName('Customer')[0].textContent,'A & B <client>');
- const fromXml=createRequire(require.resolve('xmlbuilder2'));
- const yaml=fromXml('js-yaml');
- assert.equal(yaml.safeLoad('name: POS').name,'POS');
 });
 
 test('Excel export and conditional formatting work with patched CommonJS uuid',async()=>{

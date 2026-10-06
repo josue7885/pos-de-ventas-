@@ -73,7 +73,8 @@
           "!*.db*",
           "!*.key",
           "!*.lock",
-          "!invoices/**"
+          "!invoices/**",
+          "!businesses/**"
         ]
       },
       {
@@ -91,7 +92,8 @@
           "manifest.webmanifest",
           "icon.svg",
           "pos-math.js",
-          "enhancements.js"
+          "enhancements.js",
+          "business-ui.js"
         ]
       }
     ]

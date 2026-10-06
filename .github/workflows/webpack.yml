@@ -19,4 +19,5 @@ jobs:
         run: |
           node --check www/app.js
           node --check www/enhancements.js
+          node --check www/business-ui.js
           node --check www/pos-math.js

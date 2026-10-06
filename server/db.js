@@ -1,16 +1,18 @@
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
-const DATA_DIR = path.resolve(process.env.POS_DATA_DIR || __dirname);
-fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
-const dbPath = path.join(DATA_DIR, 'pos.db');
-
-// One server process per data directory. Never expose this directory through HTTP.
-const releaseLock = require('./data-lock').acquireDataLock(DATA_DIR);
-process.on('exit', () => { try { releaseLock(); } catch (_) {} });
-
-async function initializeDatabase() {
-  const SQL = await require('sql.js')();
+const locks=new Set();
+process.on('exit',()=>{for(const release of locks){try{release();}catch{}}});
+let sqlPromise;
+async function initializeDatabase({directory=path.resolve(process.env.POS_DATA_DIR || __dirname),adminPin=process.env.POS_ADMIN_PIN || '',adminName='Administrador'}={}) {
+  fs.mkdirSync(directory,{recursive:true,mode:0o700});
+  const release=require('./data-lock').acquireDataLock(directory);locks.add(release);
+  const unlock=()=>{release();locks.delete(release);};
+  try{return await openDatabase(path.join(directory,'pos.db'),adminPin,adminName,unlock);}
+  catch(error){unlock();throw error;}
+}
+async function openDatabase(dbPath,adminPin,adminName,releaseLock) {
+  const SQL=await (sqlPromise ||= require('sql.js')());
   let sqlite = new SQL.Database(fs.existsSync(dbPath) ? fs.readFileSync(dbPath) : undefined);
   let inTransaction = false;
   function persist() {
@@ -62,7 +64,7 @@ async function initializeDatabase() {
         all: (...params) => query('all', params)
       };
     },
-    close() { sqlite.close(); }
+    close() { sqlite.close();releaseLock(); }
   };
   db.transaction(() => {
     db.prepare(`CREATE TABLE IF NOT EXISTS users (
@@ -282,7 +284,7 @@ async function initializeDatabase() {
       iva_rate: '0.13'
     };
 
-    Object.entries(defaultSettings).forEach(([key, value]) => {
+    Object.entries({...defaultSettings,...require('./business-config').defaults}).forEach(([key, value]) => {
       db.prepare('INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)').run(key, String(value));
     });
 
@@ -319,9 +321,9 @@ async function initializeDatabase() {
     const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
 
     if (userCount === 0) {
-      const pin = process.env.POS_ADMIN_PIN || '';
+      const pin = adminPin;
       if (!/^\d{6,12}$/.test(pin)) throw new Error('Primera ejecución: define POS_ADMIN_PIN con 6 a 12 dígitos.');
-      db.prepare('INSERT INTO users (name, role, pin) VALUES (?,?,?)').run('Administrador', 'admin', bcrypt.hashSync(pin, 12));
+      db.prepare('INSERT INTO users (name, role, pin) VALUES (?,?,?)').run(adminName, 'admin', bcrypt.hashSync(pin, 12));
     } else {
       const users = db.prepare('SELECT id, pin FROM users').all();
       users.forEach((u) => {
@@ -339,3 +341,5 @@ async function initializeDatabase() {
   return db;
 }
 module.exports = initializeDatabase();
+
+module.exports.open = initializeDatabase;
