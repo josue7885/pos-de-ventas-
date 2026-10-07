@@ -1,5 +1,6 @@
 const crypto=require('node:crypto');
-const {receiptDocument}=require('./receipt');
+const {receiptDocument,receiptHtml}=require('./receipt');
+const {loadDocument,captureProfile,documentFilename}=require('./documents');
 const commerce=require('./commerce');
 module.exports=function(app,getDb,{profile,requireAdminOrManager,ensureOpenPeriod}) {
  const db=()=>getDb(),{fail,math}=commerce;
@@ -15,30 +16,24 @@ module.exports=function(app,getDb,{profile,requireAdminOrManager,ensureOpenPerio
    const id=work();db().prepare('INSERT INTO operation_requests(request_key,user_id,kind,fingerprint,result_id) VALUES (?,?,?,?,?)').run(key,req.user.id,kind,fingerprint,id);return {id,replayed:false};
   })();
  }
- function saleDocument(id) {
-  const sale=db().prepare('SELECT s.*,i.number FROM sales s JOIN invoices i ON i.sale_id=s.id WHERE s.id=?').get(id);
-  if(!sale)fail(404,'Comprobante no encontrado');
-  const items=db().prepare('SELECT * FROM sale_items WHERE sale_id=? ORDER BY id').all(id);
-  return {...sale,kind:'sale',items,business_id:profile().business_id,currency_code:profile().currency_code,fiscalStatus:'NOT_AUTHORIZED'};
- }
- function quoteDocument(id) {
-  const row=db().prepare('SELECT * FROM quotes WHERE id=?').get(id);if(!row)fail(404,'Cotización no encontrada');
-  return {currency_code:profile().currency_code,...JSON.parse(row.snapshot),business_id:profile().business_id,id:row.id,number:'COT-'+String(row.id).padStart(6,'0'),kind:'quote',created_at:row.created_at,valid_until:row.valid_until,converted_sale_id:row.converted_sale_id,fiscalStatus:'NOT_AUTHORIZED'};
- }
+ const saleDocument=id=>loadDocument(db(),profile(),'sale',id);
+ const quoteDocument=id=>loadDocument(db(),profile(),'quote',id);
  app.get('/api/documents',handle((req,res)=>{
   documentAccess(req);
   const sales=db().prepare('SELECT s.id FROM sales s JOIN invoices i ON i.sale_id=s.id ORDER BY s.id DESC LIMIT 1000').all().map(r=>saleDocument(r.id));
   const quotes=db().prepare('SELECT id FROM quotes ORDER BY id DESC LIMIT 1000').all().map(r=>quoteDocument(r.id));
-  res.json({documents:[...sales,...quotes].sort((a,b)=>b.created_at.localeCompare(a.created_at))});
+  // The directory does not need logos or issuer details repeated for every row.
+  res.json({documents:[...sales,...quotes].sort((a,b)=>b.created_at.localeCompare(a.created_at)).map(({issuer,...summary})=>summary)});
  }));
  app.get('/api/documents/:kind/:id/:format',handle((req,res)=>{
   documentAccess(req);if(!['sale','quote'].includes(req.params.kind))fail(404,'Tipo desconocido');
   const document=req.params.kind==='quote'?quoteDocument(req.params.id):saleDocument(req.params.id);
   if(req.params.format==='json'){
-   res.setHeader('Content-Disposition',`attachment; filename="${document.kind}-${document.id}.json"`);return res.json(document);
+   res.setHeader('Content-Disposition',`attachment; filename="${documentFilename(document)}.json"`);return res.json(document);
   }
+  if(req.params.format==='html')return res.type('html').set('X-Content-Type-Options','nosniff').send(receiptHtml(document));
   if(req.params.format!=='pdf')fail(404,'Formato desconocido');
-  res.type('pdf');const pdf=receiptDocument(profile(),document,document);pdf.on('error',()=>res.destroy());pdf.pipe(res);pdf.end();
+  res.type('pdf').set('Content-Disposition',`attachment; filename="${documentFilename(document)}.pdf"`);const pdf=receiptDocument(document.issuer,document,document);pdf.on('error',()=>res.destroy());pdf.pipe(res);pdf.end();
  }));
  app.post('/api/quotes',handle((req,res)=>{
   writer(req);
@@ -46,7 +41,7 @@ module.exports=function(app,getDb,{profile,requireAdminOrManager,ensureOpenPerio
    const value=commerce.checkout(db(),req.body,req.user,Number(profile().iva_rate),{quote:true});
    const now=new Date(),until=new Date(now.getTime()+profile().quote_validity_days*24*60*60*1000);
    const customer=String(req.body.customerName||'Cliente general').slice(0,200);
-   const snapshot={currency_code:profile().currency_code,...value.totals,discount_percent:value.percent,discount_reason:value.reason,customer_name:customer,customer_nit:String(req.body.customerNit||'CF').slice(0,40),customer_email:String(req.body.customerEmail||'').slice(0,254),customer_phone:String(req.body.customerPhone||'').slice(0,40),customer_address:String(req.body.customerAddress||'').slice(0,1000),customer_department:String(req.body.customerDepartment||'').slice(0,100),customer_municipality:String(req.body.customerMunicipality||'').slice(0,100),customer_giro:String(req.body.customerGiro||'').slice(0,200),document_type:req.body.documentType==='credito_fiscal'?'credito_fiscal':'consumidor_final',employee_name:req.user.name,items:value.items.map(it=>({...it,product_id:it.id,catalog_price:it.catalogPrice,price_reason:it.priceReason}))};
+   const snapshot={receipt_profile_id:captureProfile(db(),profile()),currency_code:profile().currency_code,...value.totals,discount_percent:value.percent,discount_reason:value.reason,customer_name:customer,customer_nit:String(req.body.customerNit||'CF').slice(0,40),customer_email:String(req.body.customerEmail||'').slice(0,254),customer_phone:String(req.body.customerPhone||'').slice(0,40),customer_address:String(req.body.customerAddress||'').slice(0,1000),customer_department:String(req.body.customerDepartment||'').slice(0,100),customer_municipality:String(req.body.customerMunicipality||'').slice(0,100),customer_giro:String(req.body.customerGiro||'').slice(0,200),document_type:req.body.documentType==='credito_fiscal'?'credito_fiscal':'consumidor_final',employee_name:req.user.name,items:value.items.map(it=>({...it,product_id:it.id,catalog_price:it.catalogPrice,price_reason:it.priceReason}))};
    return db().prepare('INSERT INTO quotes(user_id,created_at,valid_until,snapshot) VALUES (?,?,?,?)').run(req.user.id,now.toISOString(),until.toISOString(),JSON.stringify(snapshot)).lastInsertRowid;
   });res.json({quote:quoteDocument(result.id),replayed:result.replayed});
  }));

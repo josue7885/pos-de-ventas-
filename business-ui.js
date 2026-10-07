@@ -8,13 +8,14 @@ function moduleEnabled(id){const c=state.companySettings;return !(id==='business
 function fillBusinessSettings(settings){for(const key of businessFields){const el=document.getElementById('setting-'+key);if(el)el.value=settings[key]??'';}for(const key of businessFlags){const el=document.getElementById('setting-'+key);if(el)el.checked=settings[key]!==false && settings[key]!=='false';}for(const el of document.querySelectorAll('[data-enabled-payment]'))el.checked=(settings.payment_methods||['efectivo','tarjeta','transferencia']).includes(el.value);}
 function readBusinessSettings(){const data={};for(const k of businessFields)data[k]=document.getElementById('setting-'+k).value;for(const k of businessFlags)data[k]=document.getElementById('setting-'+k).checked;data.payment_methods=Array.from(document.querySelectorAll('[data-enabled-payment]:checked')).map(el=>el.value);return data;}
 function applyBusinessConfiguration(){
+ for(const id of ['setting-business_type','apply-business-profile'])document.getElementById(id).disabled=currentEmployee?.role!=='admin';
  const c=state.companySettings,name=businessDirectory.find(b=>b.id===getBusinessId())?.name||c.company_name||'Negocio principal';
  document.getElementById('active-business-name').textContent=name;document.querySelectorAll('.currency-code').forEach(el=>el.textContent=c.currency_code||'USD');document.getElementById('sale-tax-label').textContent=c.tax_label||'IVA';
  for(const id of ['save-quote-btn','quotes-module-create-btn'])document.getElementById(id)?.classList.toggle('hidden',c.quotes_enabled===false);
  for(const id of ['send-kitchen-btn','open-kitchen-display-btn','open-customer-display-btn'])document.getElementById(id)?.classList.toggle('hidden',c.kitchen_enabled===false);
  document.getElementById('receive-stock-btn')?.classList.toggle('hidden',c.receiving_enabled===false);
  const select=document.getElementById('billing-payment-method'),previous=select.value,labels={efectivo:'Efectivo',tarjeta:'Tarjeta',transferencia:'Transferencia'},enabled=c.payment_methods||Object.keys(labels);select.replaceChildren(...enabled.map(m=>new Option(labels[m],m)));if(enabled.includes(previous))select.value=previous;
- if(currentEmployee && !moduleEnabled(activeModule))setActiveModule('pos');
+ if(currentEmployee && !availableModules().includes(activeModule))setActiveModule('pos');
 }
 async function loadBusinessDirectory(){const data=await apiRequest('/businesses');businessDirectory=data.businesses;const select=document.getElementById('business-select');select.replaceChildren(...businessDirectory.map(b=>new Option(b.name,b.id)));select.value=getBusinessId();}
 async function switchBusiness(id){
@@ -52,7 +53,7 @@ async function initializeBusinesses(){
  document.getElementById('setting-number_locale').replaceChildren(...['es-SV','es-GT','es-HN','es-NI','es-CR','es-MX','es-DO','es-ES','en-US'].map(v=>new Option(v,v)));
  document.getElementById('business-select').addEventListener('change',e=>switchBusiness(e.target.value).catch(e=>alert(e.message)));
  document.getElementById('switch-business-btn').addEventListener('click',async()=>{if(saleInFlight||pendingSale)return alert('Confirma la venta pendiente.');await switchBusiness(getBusinessId());document.getElementById('business-select').focus();});
- document.getElementById('apply-business-profile').addEventListener('click',()=>{const type=document.getElementById('setting-business_type').value;for(const key of businessFlags)document.getElementById('setting-'+key).checked=['tables_enabled','kitchen_enabled'].includes(key)?['restaurant','mixed'].includes(type):key==='receiving_enabled'?type!=='services':true;document.getElementById('setting-default_product_type').value=type==='services'?'servicio':'producto';});
+ document.getElementById('apply-business-profile').addEventListener('click',()=>{if(currentEmployee?.role!=='admin')return alert('Solo el administrador puede cambiar el tipo de negocio.');const type=document.getElementById('setting-business_type').value;for(const key of businessFlags)document.getElementById('setting-'+key).checked=['tables_enabled','kitchen_enabled'].includes(key)?['restaurant','mixed'].includes(type):key==='receiving_enabled'?type!=='services':true;document.getElementById('setting-default_product_type').value=type==='services'?'servicio':'producto';});
  document.getElementById('business-create-form').addEventListener('submit',createBusiness);
  document.getElementById('recover-business-btn').addEventListener('click',recoverBusiness);
  document.getElementById('businesses-list').addEventListener('click',async event=>{const b=event.target.closest('button');if(!b||b.disabled)return;b.disabled=true;try{

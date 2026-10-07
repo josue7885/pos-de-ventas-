@@ -6,9 +6,9 @@ Se revisaron los 16 archivos compartidos y se adaptaron sus mejoras al servidor 
 
 | Área | Comportamiento |
 |---|---|
-| Interfaz | Diseño adaptable, acceso mediante formulario y botón para mostrar/ocultar el PIN. |
+| Interfaz | Tres áreas con pestañas por rol: Caja, Documentos y Configuración; navegación por teclado y carrito conservado al cambiar de pestaña. |
 | Clientes | Búsqueda, alta y edición; nombre, NIT/DUI, correo, dirección, departamento, municipio y giro guardados en el servidor. |
-| Documentos | Consulta de los últimos 1000 comprobantes y 1000 cotizaciones, filtros, ticket, PDF y JSON; envío manual de comprobantes por SMTP. |
+| Documentos | Consulta de los últimos 1000 comprobantes y 1000 cotizaciones, filtros, impresión, PDF y JSON unificados; envío manual de ventas y cotizaciones por SMTP. |
 | Cotizaciones | Vigencia de 15 días, sin cobro, apertura de caja ni reserva de stock. Reintentos recuperan la misma cotización. Se pueden cargar al carrito y convertir una sola vez. |
 | Inventario | SKU/código único, búsqueda por código con Enter, categorías, productos y servicios, unidades fraccionarias hasta tres decimales, costo y alertas de existencias bajas. |
 | Recepción | Cantidad, costo sin IVA, IVA de la entrada, proveedor y referencia. Actualiza costo promedio ponderado y existencias; registra compra y movimiento en una transacción. |
@@ -33,7 +33,7 @@ Se revisaron los 16 archivos compartidos y se adaptaron sus mejoras al servidor 
 
 ## Validación y límites
 
-`npm test` ejecuta 30 pruebas, con bases temporales y HTTP real. Incluye la interfaz en JSDOM, precios y descuentos por rol, cantidades fraccionarias, cotizaciones sin efecto contable, conversión única, recepción con costo ponderado e IVA, respuestas perdidas, filtros, desactivación de cuentas, reinicios, respaldo/restauración y reversión de transacciones.
+`npm test` ejecuta 42 pruebas, con bases temporales y HTTP real. Incluye pestañas y permisos con sesiones reales, perfil histórico del emisor, igualdad de descargas y adjuntos contra un SMTP local, la interfaz en JSDOM, precios y descuentos por rol, cantidades fraccionarias, cotizaciones sin efecto contable, conversión única, recepción con costo ponderado e IVA, respuestas perdidas, filtros, desactivación de cuentas, reinicios, respaldo/restauración y reversión de transacciones.
 
 La instalación de Chromium en el entorno de revisión falló al descargar su archivo. El recorrido Playwright queda disponible en `tests/browser-smoke.cjs`, pero esta integración no se certifica como probada en un navegador gráfico o en Windows. Tampoco se validaron impresoras físicas, entrega real SMTP ni binarios de instalación.
 

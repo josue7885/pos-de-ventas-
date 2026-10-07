@@ -12,7 +12,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const ExcelJS = require('exceljs');
-const nodemailer = require('nodemailer');
+const {loadDocument}=require('./documents');
+const {sendDocumentEmail}=require('./document-mail');
 const crypto = require('crypto');
 
 const app = express();
@@ -292,41 +293,6 @@ app.post('/api/auth/executive-pin', execLimiter, (req,res) => {
   db.prepare('INSERT INTO app_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('executive_pin_hash',bcrypt.hashSync(pin,12));
   res.json({ success:true });
 });
-
-async function sendInvoiceEmail(invoiceRow, customerEmail) {
-  const config = buildCompanyProfile();
-  const hasSmtpConfig = config.smtp_host && config.smtp_user && config.smtp_password;
-  if (!config.invoice_email_enabled || !hasSmtpConfig) {
-    return { sent: false, reason: 'Configuración SMTP no activada o incompleta.' };
-  }
-
-  const transporter = nodemailer.createTransport({
-    host: config.smtp_host,
-    port: Number(config.smtp_port || 587),
-    secure: !!config.smtp_secure,
-    auth: {
-      user: config.smtp_user,
-      pass: config.smtp_password
-    }
-  });
-
-  const sale=db.prepare('SELECT * FROM sales WHERE id=?').get(invoiceRow.sale_id);
-  if(!sale) return {sent:false,reason:'Venta no encontrada'};
-  sale.items=db.prepare('SELECT * FROM sale_items WHERE sale_id=? ORDER BY id').all(sale.id);
-  const pdf=await require('./receipt').receiptBuffer(config,invoiceRow,sale);
-  let info;
-  try {
-    info=await transporter.sendMail({
-      from:{name:config.smtp_from_name,address:config.smtp_from || config.smtp_user},
-      to:customerEmail,
-      subject:`Comprobante interno ${invoiceRow.number}`,
-      text:`Adjuntamos el comprobante ${invoiceRow.number} de ${config.company_name}. Sin autorización fiscal.`,
-      attachments:[{filename:'comprobante.pdf',content:pdf,contentType:'application/pdf'},{filename:'comprobante.json',content:JSON.stringify({...sale,number:invoiceRow.number,fiscalStatus:'NOT_AUTHORIZED'},null,2),contentType:'application/json'}]
-    });
-  } finally { transporter.close(); }
-
-  return { sent: true, messageId: info.messageId };
-}
 
 app.get('/api/settings', authenticateOptional, (req, res) => {
   res.json({ settings: safeSettings(req.user) });
@@ -922,25 +888,25 @@ app.get('/api/reports/sales/export', authenticateRequired, async (req, res, next
   } catch(error) { next(error); }
 });
 
-app.post('/api/invoices/:saleId/email', rateLimit({windowMs:60000,max:5}), authenticateRequired, async (req, res) => {
-  const saleId = req.params.saleId;
-  const { customerEmail } = req.body || {};
-  if (typeof customerEmail !== 'string' || customerEmail.length>254 || !/^[^\s@<>;,]+@[^\s@<>;,]+\.[^\s@<>;,]+$/.test(customerEmail)) return res.status(400).json({error:'Indica un único correo válido para el cliente'});
-
-  const invoice = db.prepare('SELECT * FROM invoices WHERE sale_id = ?').get(saleId);
-  if (!invoice) return res.status(404).json({ error: 'Factura no encontrada' });
-
-  try {
-    const sent = await sendInvoiceEmail(invoice, customerEmail);
-    if (!sent.sent) {
-      return res.status(400).json({ error: sent.reason || 'No se pudo enviar el correo' });
-    }
-    return res.json({ success: true, message: 'Correo enviado correctamente.' });
-  } catch (error) {
-    console.error('Error enviando correo:', error);
-    return res.status(500).json({ error: 'No se pudo enviar el correo. Revisa la configuración SMTP.' });
+const emailLimiter=rateLimit({windowMs:60000,max:5});
+async function emailDocument(req,res,next){
+  if(!['admin','gerente','cajero','contador'].includes(req.user.role))return res.status(403).json({error:'Permiso insuficiente'});
+  const customerEmail=req.body?.customerEmail;
+  if(typeof customerEmail!=='string' || customerEmail.length>254 || !/^[^\s@<>;,]+@[^\s@<>;,]+\.[^\s@<>;,]+$/.test(customerEmail))return res.status(400).json({error:'Indica un único correo válido para el cliente'});
+  let document;
+  try{document=loadDocument(db,buildCompanyProfile(),req.params.kind||'sale',req.params.id||req.params.saleId);}catch(error){return next(error);}
+  try{
+    const result=await sendDocumentEmail(document,buildCompanyProfile(),customerEmail);
+    if(!result.sent)return res.status(400).json({error:result.reason});
+    return res.json({success:true,message:'Correo aceptado por el servidor SMTP.',number:document.number});
+  }catch(error){
+    console.error('Error enviando documento:',error.code||error.name);
+    return res.status(500).json({error:'No se pudo confirmar el envío. Revisa SMTP y la bandeja del destinatario antes de reintentar.'});
   }
-});
+}
+app.post('/api/documents/:kind/:id/email',emailLimiter,emailDocument);
+// Compatibility with older terminals, using the same public document and attachments.
+app.post('/api/invoices/:saleId/email',emailLimiter,emailDocument);
 
 app.post('/api/hacienda/send/:invoiceId', (req,res) => res.status(501).json({error:'La integración fiscal todavía no está implementada.'}));
 app.use((error,req,res,next) => {

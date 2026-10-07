@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const {receiptDocument}=require('./receipt');
+const {loadDocument,captureProfile,documentFilename}=require('./documents');
 const { create } = require('xmlbuilder2');
 const commerce=require('./commerce');
 
@@ -155,6 +156,7 @@ module.exports = function registerCore(app, getDb, { profile, nextInvoiceData, a
       const { number } = nextInvoiceData();
       const xml = create({ Receipt: { Number: number, Date: date, Customer: customer.name, Total: total/100, FiscalStatus: 'NOT_AUTHORIZED', Item: items.map(it => ({ Name: it.name, Quantity: it.qty, Price: it.price })) } }).end({ prettyPrint: true });
       db().prepare('INSERT INTO invoices (sale_id,number,xml,pdf_path,customer_name,customer_nit,customer_email,document_type,printed) VALUES (?,?,?,?,?,?,?,?,?)').run(saleId,number,xml,'',customer.name,customer.nit,customer.email,type,0);
+      db().prepare('UPDATE invoices SET profile_id=? WHERE sale_id=?').run(captureProfile(db(),profile()),saleId);
       addVatBookEntry({ number,subtotal:subtotal/100,tax:tax/100,total:total/100,createdAt:date,customerName:customer.name,customerNit:customer.nit,tipo_receptor:type });
       db().prepare('INSERT INTO sale_requests (request_key,user_id,fingerprint,sale_id) VALUES (?,?,?,?)').run(key,req.user.id,fingerprint,saleId);
       return { saleId, replayed: false };
@@ -163,11 +165,9 @@ module.exports = function registerCore(app, getDb, { profile, nextInvoiceData, a
     res.json({ sale: saleFor(result.saleId), invoiceNumber: invoice.number, replayed: result.replayed });
   }));
   app.get('/api/invoices/:saleId/pdf', handle((req, res) => {
-    const invoice = db().prepare('SELECT * FROM invoices WHERE sale_id=?').get(req.params.saleId);
-    if (!invoice) fail(404, 'Comprobante no encontrado.');
-    const sale = saleFor(req.params.saleId);
-    res.type('pdf');
-    const doc = receiptDocument(profile(),invoice,sale);
+    const document=loadDocument(db(),profile(),'sale',req.params.saleId);
+    res.type('pdf').set('Content-Disposition',`inline; filename="${documentFilename(document)}.pdf"`);
+    const doc=receiptDocument(document.issuer,document,document);
     doc.on('error', () => res.destroy());
     doc.pipe(res);
     doc.end();

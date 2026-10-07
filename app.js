@@ -694,51 +694,62 @@ function openCustomerDisplay() {
  if (popup) popup.focus();
 }
 
+const navigationGroups = [
+  {id:'cash',label:'Caja',modules:[['pos','Venta'],['tables','Mesas'],['orders','Órdenes'],['kitchen','Cocina'],['cash','Turno y cierre']]},
+  {id:'documents',label:'Documentos',modules:[['documents','Comprobantes'],['inventory','Inventario'],['reports','Reportes']]},
+  {id:'settings',label:'Configuración',modules:[['settings','General'],['businesses','Negocios'],['users','Usuarios']]}
+];
+const roleModules = {
+  admin:['businesses','documents','pos','tables','orders','kitchen','inventory','cash','reports','users','settings'],
+  gerente:['documents','inventory','pos','tables','orders','kitchen','reports','cash','users'],
+  cajero:['documents','pos','tables','orders','cash'],
+  mesero:['pos','tables','orders','kitchen'],
+  cocina:['kitchen'],
+  contador:['documents','reports','cash']
+};
+let rememberedModule = {};
+function availableModules(){
+  return (roleModules[currentEmployee?.role] || []).filter(moduleEnabled);
+}
+function selectWorkspace(id){
+  const group=navigationGroups.find(g=>g.id===id),allowed=availableModules();
+  if(!group)return;
+  const options=group.modules.map(([module])=>module).filter(module=>allowed.includes(module));
+  if(options.length)setActiveModule(options.includes(rememberedModule[id])?rememberedModule[id]:options[0]);
+}
 function renderNav() {
-  const nav = document.getElementById('nav-menu');
-  const visibleSections = {
-    admin: ['businesses','documents','pos', 'tables', 'orders', 'kitchen', 'inventory', 'cash', 'reports', 'users', 'settings'],
-    cajero: ['documents','pos', 'tables', 'orders', 'cash'],
-    mesero: ['pos', 'tables', 'orders', 'kitchen'],
-    cocina: ['kitchen'],
-    gerente: ['documents','inventory','pos', 'tables', 'orders', 'kitchen', 'reports', 'cash', 'users'],
-    contador: ['documents','reports', 'cash']
+  const allowed=availableModules();
+  const groups=navigationGroups.filter(g=>g.modules.some(([id])=>allowed.includes(id)));
+  if(!allowed.includes(activeModule))activeModule=groups.flatMap(g=>g.modules).find(([id])=>allowed.includes(id))?.[0] || '';
+  const activeGroup=groups.find(g=>g.modules.some(([id])=>id===activeModule));
+  if(activeGroup)rememberedModule[activeGroup.id]=activeModule;
+  const focused=document.activeElement;
+  const focusedModule=focused?.closest('#module-tabs')?focused.dataset.module:null;
+  const focusedGroup=focused?.closest('#nav-menu')?focused.dataset.workspace:null;
+  const nav=document.getElementById('nav-menu');
+  nav.innerHTML=groups.map(g=>`<button type="button" class="nav-btn ${g===activeGroup?'active':''}" data-workspace="${g.id}" ${g===activeGroup?'aria-current="page"':''}>${g.label}</button>`).join('');
+  nav.querySelectorAll('[data-workspace]').forEach(b=>b.addEventListener('click',()=>selectWorkspace(b.dataset.workspace)));
+  document.getElementById('workspace-title').textContent=activeGroup?.label || 'Sin módulos disponibles';
+  const tabs=document.getElementById('module-tabs');
+  tabs.setAttribute('aria-label',activeGroup?.label || 'Secciones');
+  tabs.innerHTML=(activeGroup?.modules || []).filter(([id])=>allowed.includes(id)).map(([id,label])=>`<button type="button" id="tab-${id}" class="module-tab-btn ${id===activeModule?'active':''}" role="tab" aria-selected="${id===activeModule}" aria-controls="module-${id}" tabindex="${id===activeModule?'0':'-1'}" data-module="${id}">${label}</button>`).join('');
+  tabs.querySelectorAll('[data-module]').forEach(b=>b.addEventListener('click',()=>setActiveModule(b.dataset.module)));
+  tabs.onkeydown=event=>{
+    if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+    const buttons=Array.from(tabs.querySelectorAll('[role=tab]')),index=buttons.indexOf(event.target);
+    if(index<0)return;event.preventDefault();
+    const next=event.key==='Home'?0:event.key==='End'?buttons.length-1:(index+(event.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;
+    const id=buttons[next].dataset.module;setActiveModule(id);document.getElementById('tab-'+id)?.focus();
   };
-
-  const modules = [
-    { id: 'businesses', label: 'Negocios' },
-    { id: 'pos', label: 'Venta' },
-    { id: 'tables', label: 'Mesas' },
-    { id: 'orders', label: 'Órdenes' },
-    { id: 'kitchen', label: 'Cocina' },
-    { id: 'inventory', label: 'Inventario' },
-    { id: 'cash', label: 'Caja' },
-    { id:'documents',label:'Documentos' },
-    { id: 'reports', label: 'Reportes' },
-    { id: 'users', label: 'Usuarios' },
-    { id: 'settings', label: 'Configuración' }
-  ];
-
-  const roles = currentEmployee ? visibleSections[currentEmployee.role] || [] : [];
-
-  nav.innerHTML = modules
-    .filter((module) => roles.includes(module.id) && moduleEnabled(module.id))
-    .map(
-      (module) => `
-        <button
-          class="nav-btn ${module.id === activeModule ? 'active' : ''}"
-          data-module="${module.id}"
-          type="button"
-        >
-          ${module.label}
-        </button>
-      `
-    )
-    .join('');
-
-  nav.querySelectorAll('.nav-btn').forEach((button) => {
-    button.addEventListener('click', () => setActiveModule(button.dataset.module));
+  document.querySelectorAll('.module').forEach(panel=>{
+    const active=panel.id==='module-'+activeModule;
+    panel.classList.toggle('hidden',!active);panel.classList.toggle('active',active);
+    panel.setAttribute('role','tabpanel');panel.setAttribute('aria-label',navigationGroups.flatMap(g=>g.modules).find(([id])=>panel.id==='module-'+id)?.[1] || 'Sección');
+    panel.setAttribute('aria-hidden',String(!active));
+    if(active)panel.setAttribute('aria-labelledby','tab-'+activeModule);else panel.removeAttribute('aria-labelledby');
   });
+  if(focusedModule)document.getElementById('tab-'+focusedModule)?.focus();
+  if(focusedGroup)nav.querySelector(`[data-workspace="${focusedGroup}"]`)?.focus();
 }
 
 function getAvailableTableForOrder(preferredName = '') {
@@ -794,15 +805,10 @@ function renderDashboardSummary() {
 
 function setActiveModule(moduleId) {
   if (!currentEmployee) return;
-  if(!moduleEnabled(moduleId))moduleId='pos';
-  if (moduleId==='settings' && !canAccessExecutivePanel()) return;
-  if (moduleId==='users' && !canManageUserAccounts()) return;
-  activeModule = moduleId;
-
-  document.querySelectorAll('.module').forEach((module) => {
-    module.classList.toggle('hidden', module.id !== `module-${moduleId}`);
-    module.classList.toggle('active', module.id === `module-${moduleId}`);
-  });
+  const allowed=availableModules();
+  if(!allowed.includes(moduleId))moduleId=allowed.includes(activeModule)?activeModule:allowed[0];
+  if(!moduleId){renderNav();return;}
+  activeModule=moduleId;
 
   renderNav();
   if (moduleId === 'cash') renderCashPanel();
@@ -1029,7 +1035,7 @@ async function processSale() {
     // Mark committed before rendering or requesting PDFs. Those failures must never create a second sale.
     localStorage.removeItem(pendingSaleKey());pendingSale=null;cart=[];resetSaleAdjustments();renderCart();
     await syncFromServer().catch(()=>alert('Venta confirmada. Actualiza para consultar el saldo y las existencias.'));
-    window.open(getApiUrl(`/invoices/${data.sale.id}/pdf`),'_blank','noopener');
+    showConfirmedSale(data.sale,data.invoiceNumber);
     alert(`Venta confirmada #${data.sale.id}. Total: ${currency(data.sale.total)}${data.replayed?' (operación recuperada, sin duplicar)':''}.`);
   } catch(error) {
     if (pendingSale && error.status>=400 && error.status<500 && !pendingSale.uncertain) {

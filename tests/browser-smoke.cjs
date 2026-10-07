@@ -12,6 +12,7 @@ const fs=require('fs'),os=require('os'),path=require('path'),{spawn}=require('ch
  const errors=[];const page=await browser.newPage();page.on('pageerror',e=>errors.push(e.message));page.on('dialog',async d=>{if(d.type()==='prompt')await d.accept('0');else await d.accept();});
  await page.goto(base);await page.locator('#employee-select option').waitFor();await page.fill('#pin-input','000000');await page.click('#login-btn');await page.locator('#login-error:not(.hidden)').waitFor();assert.equal(await page.locator('#app-shell').isVisible(),false);
  await page.fill('#pin-input','729184');await page.click('#login-btn');await page.locator('#app-shell:not(.hidden)').waitFor();
+ assert.deepEqual(await page.locator('#nav-menu button').allTextContents(),['Caja','Documentos','Configuración']);
  await page.click('[data-module=cash]');await page.click('#toggle-shift-btn');await page.waitForFunction(()=>state.shift.isOpen);
  await page.click('[data-module=pos]');await page.click('.add-item-btn');await page.click('#process-sale-btn');await page.locator('#billing-modal:not(.hidden)').waitFor();assert.equal(await page.inputValue('#billing-cash-received'),'5.09');
  await page.click('#confirm-billing-btn');await page.waitForFunction(()=>state.sales.length===1);assert.equal(await page.evaluate(()=>state.products[0].stock),4);
@@ -23,7 +24,13 @@ const fs=require('fs'),os=require('os'),path=require('path'),{spawn}=require('ch
  await page.click('#process-sale-btn');await page.click('#confirm-billing-btn');await page.waitForFunction(()=>pendingSale===null && state.sales.length===2);
  assert.equal(await page.evaluate(()=>state.products[0].stock),3);await second.waitForFunction(()=>state.sales.length===2);assert.equal(await second.evaluate(()=>state.products[0].stock),3);
  // User form references its own input, not the page heading.
- await page.click('[data-module=users]');await page.click('#new-user-btn');await page.fill('#user-form-name','Prueba UI');await page.fill('#user-pin','654321');await page.selectOption('#user-role-input','cajero');await page.locator('#user-form button[type=submit]').click();await page.waitForFunction(()=>state.employees.some(u=>u.name==='Prueba UI'));
+ await page.click('[data-workspace=settings]');assert.deepEqual(await page.locator('#module-tabs button').allTextContents(),['General','Negocios','Usuarios']);await page.click('[data-module=users]');await page.click('#new-user-btn');await page.fill('#user-form-name','Prueba UI');await page.fill('#user-pin','654321');await page.selectOption('#user-role-input','cajero');await page.locator('#user-form button[type=submit]').click();await page.waitForFunction(()=>state.employees.some(u=>u.name==='Prueba UI'));
+ await page.click('[data-workspace=documents]');await page.locator('#billing-invoices-body [data-document-action=json]').first().waitFor();
+ assert.deepEqual(await page.locator('#module-tabs button').allTextContents(),['Comprobantes','Inventario','Reportes']);
+ const downloadReady=page.waitForEvent('download');await page.locator('#billing-invoices-body [data-document-action=json]').first().click();const download=await downloadReady;
+ assert.match(download.suggestedFilename(),/^comprobante-.*\.json$/);const json=JSON.parse(fs.readFileSync(await download.path(),'utf8'));assert.equal(json.schema_version,2);assert.equal(json.business_id,'principal');
+ const popupReady=page.waitForEvent('popup');await page.locator('#billing-invoices-body [data-document-action=ticket]').first().click();const popup=await popupReady;await popup.locator('main.receipt').waitFor();assert.match(await popup.locator('body').innerText(),/Cambio/);await popup.close();
+ await page.setViewportSize({width:390,height:844});assert.equal(await page.locator('[data-workspace=cash]').isVisible(),true);assert.equal(await page.locator('[data-module=inventory]').isVisible(),true);
  assert.deepEqual(errors,[]);console.log('Browser OK: login rejection, login, shared shift, checkout/rounding, lost-response replay, two-device sync, create user; no page errors.');
  }finally{if(browser)await browser.close();await new Promise(resolve=>{server.once('exit',resolve);server.kill('SIGTERM');});fs.rmSync(dir,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);process.exitCode=1});

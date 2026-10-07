@@ -4,16 +4,16 @@
 
 La instalación existente se convierte en **Negocio principal** sin mover `pos.db` ni copiar sus ventas a otro negocio. Sus usuarios y PIN continúan funcionando. Las bases nuevas empiezan sin productos de demostración.
 
-Un administrador del principal tiene acceso al módulo **Negocios**. Allí puede crear un negocio, cambiar el nombre mostrado en el selector, activar o desactivar su acceso e ingresar a él. El nombre comercial de los comprobantes se edita desde Configuración dentro de cada negocio. Desactivar el acceso conserva los datos; el principal debe permanecer activo.
+Un administrador del principal tiene acceso a **Configuración → Negocios**. Allí puede crear un negocio, cambiar el nombre mostrado en el selector, activar o desactivar su acceso e ingresar a él. El nombre comercial de los comprobantes se edita desde **Configuración → General** dentro de cada negocio. Desactivar el acceso conserva los datos; el principal debe permanecer activo.
 
-Cada negocio tiene cuentas propias. El administrador inicial se define al crearlo; puede agregar cajeros, gerentes y otros roles desde Usuarios. Un PIN o sesión de otro negocio no concede acceso. La selección queda en cada pestaña, de modo que dos pestañas pueden trabajar con negocios distintos. El selector de acceso muestra los nombres de los negocios activos antes de iniciar sesión.
+Cada negocio tiene cuentas propias. El administrador inicial se define al crearlo; puede agregar cajeros, gerentes y otros roles desde **Configuración → Usuarios**. Un PIN o sesión de otro negocio no concede acceso. La selección queda en cada pestaña, de modo que dos pestañas pueden trabajar con negocios distintos. El selector de acceso muestra los nombres de los negocios activos antes de iniciar sesión.
 
 Para crear:
 
-1. Accede al principal como administrador y abre **Negocios**.
+1. Accede al principal como administrador y abre **Configuración → Negocios**.
 2. Introduce nombre, perfil, moneda, nombre del administrador y PIN inicial de 6 a 12 dígitos.
 3. Pulsa **Crear negocio**. Si se pierde la respuesta, usa **Consultar creación pendiente**. El reintento conserva el identificador y no crea otro negocio; no se guarda el PIN en el navegador.
-4. Pulsa **Ingresar**, accede con su cuenta y abre **Configuración**.
+4. Pulsa **Ingresar**, accede con su cuenta y abre **Configuración → General**.
 5. Revisa el impuesto y la moneda antes de cargar operaciones, guarda la configuración, agrega artículos y abre caja.
 
 ## Perfiles iniciales
@@ -24,6 +24,8 @@ Para crear:
 | Restaurante / cafetería | Sí | Sí | Sí | Producto |
 | Servicios | No | No | No | Servicio |
 | Mixto | Sí | Sí | Sí | Producto |
+
+**Solo el administrador de cada negocio puede guardar su tipo, módulos y demás configuración.** El gerente puede administrar las cuentas permitidas desde Configuración → Usuarios, pero no modificar el perfil, ni siquiera llamando directamente a la API.
 
 Las cotizaciones están activadas inicialmente en todos los perfiles. **Usar módulos sugeridos para este tipo** ajusta los controles del formulario; después pulsa Guardar. Puedes habilitar o deshabilitar cada módulo por separado. Los permisos del rol siguen aplicándose aunque un módulo esté habilitado. Un usuario de cocina no puede entrar si ese módulo está desactivado.
 
@@ -41,7 +43,9 @@ La configuración existente mantiene los módulos habilitados al migrar. Cambiar
 
 Las otras terminales reciben la configuración al sincronizar. Los documentos anteriores permanecen disponibles. Si se deshabilita un módulo después de confirmar una operación cuya respuesta se perdió, se permite recuperar esa operación con su mismo identificador. Al cambiar de negocio, primero resuelve las ventas, cotizaciones y recepciones pendientes; un carrito sin cobrar se descarta solo tras confirmación.
 
-Los PDF usan la moneda del negocio. Los documentos JSON incluyen negocio y moneda; los reportes de ventas CSV/Excel incluyen columnas Negocio y Moneda.
+Los nuevos comprobantes y cotizaciones conservan moneda, datos públicos del emisor, impuesto y pie al emitirse. Cambiar después Configuración no modifica esos datos históricos. Los perfiles idénticos se almacenan una sola vez por negocio. Para los documentos anteriores sin perfil guardado se usa la configuración actual con una nota explícita; no se inventan datos históricos.
+
+En **Documentos → Comprobantes** puedes imprimir, descargar PDF/JSON y enviar ventas o cotizaciones por correo. Al cobrar aparecen también estas acciones en la confirmación de la venta. Todas usan solicitudes autenticadas del negocio seleccionado. Los JSON públicos excluyen costos internos y credenciales; los reportes de ventas CSV/Excel conservan columnas Negocio y Moneda. Consulta [los formatos y el flujo](NAVEGACION_Y_COMPROBANTES.md).
 
 ## Datos, respaldo y actualización
 
@@ -77,4 +81,4 @@ El formato de respaldo 2 incluye principal y todos los negocios, incluso los des
 
 Los negocios no comparten inventario, cuentas, clientes ni reportes. No hay transferencias de existencias, consolidación de estados financieros o cajas independientes por terminal. El servidor y los archivos siguen siendo una instalación administrada por un mismo operador; esta versión no incorpora facturación de suscripciones ni aprovisionamiento de una plataforma SaaS.
 
-La moneda configurable no constituye integración fiscal para esos países: los comprobantes siguen siendo internos sin autorización fiscal. Las pruebas automatizadas no certifican impresión física, SMTP, instaladores ni ejecución nativa en Windows.
+La moneda configurable no constituye integración fiscal para esos países: los comprobantes siguen siendo internos sin autorización fiscal. La prueba SMTP utiliza un receptor local y valida los adjuntos; no certifica entrega con Gmail u otro proveedor. Tampoco certifica impresión física, instaladores ni ejecución nativa en Windows.

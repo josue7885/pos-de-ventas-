@@ -1,5 +1,18 @@
 # Correcciones verificadas
 
+## Pestañas y comprobantes unificados
+
+- Caja agrupa Venta, Mesas, Órdenes, Cocina y Turno y cierre.
+- Documentos agrupa Comprobantes, Inventario y Reportes.
+- Configuración agrupa General, Negocios y Usuarios; cada pestaña mantiene sus permisos.
+- Solo admin puede cambiar el tipo de negocio; verificado con gerente, cajero, contador, mesero y cocina en la API y con sesiones reales en la interfaz.
+- Impresión, PDF, JSON y adjuntos SMTP usan el mismo documento público; las cotizaciones también pueden enviarse por correo.
+- Confirmación de venta con acciones de documento autenticadas, para no abrir por error el PDF de otro negocio con el mismo número de venta.
+- Perfil público del emisor conservado al emitir y deduplicado en SQLite; no se incluyen costos internos ni secretos en los adjuntos. Los documentos antiguos sin perfil guardado informan que utilizan datos actuales del emisor.
+- 42 pruebas de API y DOM; SMTP contra un receptor local, sin mensajes externos. La descarga de Chromium falló en el entorno de revisión; no se certifican navegador gráfico, impresión física ni entrega con el proveedor SMTP.
+
+Consulta [la guía de navegación y comprobantes](docs/NAVEGACION_Y_COMPROBANTES.md).
+
 ## Negocios y configuración
 
 - Negocios con cuentas, sesiones, ventas, clientes, inventario, caja y configuración separados; administración desde el negocio principal.
@@ -9,7 +22,7 @@
 - Moneda protegida después de registrar operaciones; identificación de negocio y moneda en exportaciones.
 - Dependencias del servidor: `proxy-addr` 2.0.8 y `xmlbuilder2` 4.0.3; se retiró la cadena antigua de `sprintf-js`. Auditorías de raíz y servidor sin vulnerabilidades reportadas al verificar esta entrega.
 
-Verificación de esta revisión: 36 pruebas aprobadas de API e interfaz DOM, incluidos recuperación de respuestas perdidas y respaldo/restauración multinegocio; recursos web preparados correctamente.
+Verificación de la revisión multinegocio anterior: 36 pruebas aprobadas de API e interfaz DOM, incluidos recuperación de respuestas perdidas y respaldo/restauración multinegocio; recursos web preparados correctamente.
 
 Consulta [la guía multinegocio](docs/MULTINEGOCIO.md).
 

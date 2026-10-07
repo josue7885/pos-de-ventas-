@@ -1,12 +1,12 @@
 // Features adapted from the supplied UI. Every business write is confirmed by the API.
-let customerDirectory=[],documentDirectory=[],selectedQuoteId=null,documentsSequence=0;
+let customerDirectory=[],documentDirectory=[],selectedQuoteId=null,documentsSequence=0,lastConfirmedDocument=null;
 const fractionalUnits=new Set(['kg','g','litro','ml','metro','hora']);
 function tracksStock(p){return p.type!=='servicio';}
 function quantityStep(p){return fractionalUnits.has(p.unit)?0.001:1;}
 function roundQuantity(n){return Math.round(n*1000)/1000;}
 function canEditInventory(){return Boolean(currentEmployee && ['admin','gerente'].includes(currentEmployee.role));}
 function operationLocked(){return saleInFlight || pendingSale;}
-function resetEnhancements(){customerDirectory=[];documentDirectory=[];selectedQuoteId=null;++documentsSequence;resetSaleAdjustments();document.getElementById('operation-recovery-panel')?.classList.add('hidden');document.querySelectorAll('[id^=billing-customer-]').forEach(el=>{if(el.tagName==='INPUT'||el.tagName==='TEXTAREA')el.value='';});}
+function resetEnhancements(){rememberedModule={};lastConfirmedDocument=null;document.getElementById('sale-document-confirmation')?.classList.add('hidden');for(const id of ['setting-business_type','apply-business-profile'])document.getElementById(id).disabled=true;customerDirectory=[];documentDirectory=[];selectedQuoteId=null;++documentsSequence;resetSaleAdjustments();document.getElementById('operation-recovery-panel')?.classList.add('hidden');document.querySelectorAll('[id^=billing-customer-]').forEach(el=>{if(el.tagName==='INPUT'||el.tagName==='TEXTAREA')el.value='';});}
 function resetSaleAdjustments(){
  for(const id of ['billing-discount-percent','billing-discount-reason']){const el=document.getElementById(id);if(el)el.value=id.endsWith('percent')?'0':'';}
  selectedQuoteId=null;const label=document.getElementById('selected-quote-label');if(label)label.textContent='';
@@ -49,7 +49,36 @@ async function refreshDocuments(){
 }
 function documentButtons(d){
  const identity=`data-kind="${d.kind}" data-id="${d.id}"`;
- return `<button class="ghost-btn small" data-document-action="ticket" ${identity}>Ticket</button><button class="ghost-btn small" data-document-action="pdf" ${identity}>PDF</button><button class="ghost-btn small" data-document-action="json" ${identity}>JSON</button>`+(d.kind==='quote'?(['admin','gerente','cajero'].includes(currentEmployee?.role) && !d.converted_sale_id && new Date(d.valid_until)>new Date()?`<button class="primary-btn small" data-document-action="load" ${identity}>Usar en venta</button>`:''):`<button class="ghost-btn small" data-document-action="email" ${identity}>Enviar correo</button>`);
+ const actions=[['ticket','Imprimir'],['pdf','PDF'],['json','JSON'],['email','Enviar correo']];
+ let html=actions.map(([action,label])=>`<button type="button" class="ghost-btn small" data-document-action="${action}" ${identity}>${label}</button>`).join('');
+ if(d.kind==='quote' && ['admin','gerente','cajero'].includes(currentEmployee?.role) && !d.converted_sale_id && new Date(d.valid_until)>new Date())html+=`<button type="button" class="primary-btn small" data-document-action="load" ${identity}>Usar en venta</button>`;
+ return html;
+}
+function showConfirmedSale(sale,number){
+ lastConfirmedDocument={...sale,kind:'sale',number};
+ const panel=document.getElementById('sale-document-confirmation');
+ panel.innerHTML=`<p><strong>Venta confirmada ${escapeHtml(number)}</strong> · ${currency(sale.total)}</p><div class="sale-document-actions">${documentButtons(lastConfirmedDocument)}</div>`;
+ panel.classList.remove('hidden');
+}
+function documentFileBase(d){return `${d.kind==='quote'?'cotizacion':'comprobante'}-${String(d.number||d.id).replace(/[^A-Za-z0-9_-]/g,'_').slice(0,80)}`;}
+async function printDocument(d){
+ // Open during the click so asynchronous fetches do not trigger popup blocking.
+ const popup=window.open('','_blank','width=900,height=900');
+ if(!popup)throw Error('Permite ventanas emergentes para imprimir. También puedes descargar el PDF.');
+ popup.opener=null;
+ popup.document.write('<!DOCTYPE html><html lang="es"><meta charset="utf-8"><title>Preparando comprobante</title><body>Preparando documento para imprimir...</body></html>');
+ popup.document.close();
+ const user=currentEmployee?.id;
+ try{
+  const response=await posFetch(getApiUrl(`/documents/${d.kind}/${d.id}/html`));
+  if(!response.ok){const data=await response.json();throw Error(data.error||'No se pudo preparar la impresión.');}
+  const html=await response.text();
+  if(currentEmployee?.id!==user)throw Error('La sesión cambió. Vuelve a abrir el documento.');
+  if(popup.closed)return;
+  popup.document.open();popup.document.write(html);popup.document.close();
+  await Promise.all(Array.from(popup.document.images).map(img=>img.complete?Promise.resolve():new Promise(resolve=>{const timer=setTimeout(resolve,3000);img.onload=img.onerror=()=>{clearTimeout(timer);resolve();};})));
+  if(!popup.closed){popup.focus();popup.print();}
+ }catch(error){popup.close();throw error;}
 }
 function renderDocuments(){
  const search=(document.getElementById('billing-invoices-search').value||'').toLowerCase(),start=document.getElementById('billing-invoices-from').value,end=document.getElementById('billing-invoices-to').value,type=document.getElementById('billing-invoices-type').value;
@@ -66,15 +95,15 @@ async function downloadFromApi(path,filename){
 }
 async function documentAction(event){
  const button=event.target.closest('[data-document-action]');if(!button)return;
- const d=documentDirectory.find(x=>x.kind===button.dataset.kind && x.id===Number(button.dataset.id));if(!d)return;
+ const d=[...documentDirectory,lastConfirmedDocument].find(x=>x && x.kind===button.dataset.kind && x.id===Number(button.dataset.id));if(!d || button.disabled)return;
  button.disabled=true;
  try{
   const action=button.dataset.documentAction;
-  if(action==='pdf'||action==='json')await downloadFromApi(`/documents/${d.kind}/${d.id}/${action}`,`${d.kind}-${d.id}.${action}`);
-  if(action==='ticket')printWindow(`<h2>${d.kind==='quote'?'Cotización':'Comprobante interno'} ${escapeHtml(d.number)}</h2><p>${escapeHtml(d.customer_name)}</p><table>${d.items.map(i=>`<tr><td>${escapeHtml(i.name)}</td><td>${i.qty} ${escapeHtml(i.unit||'unidad')}</td><td>${currency(i.price)}</td></tr>`).join('')}</table><p>Descuento: ${currency(d.discount)}</p><p>Total: ${currency(d.total)}</p><p>Sin autorización fiscal.</p>`,'Documento POS');
+  if(action==='pdf'||action==='json')await downloadFromApi(`/documents/${d.kind}/${d.id}/${action}`,`${documentFileBase(d)}.${action}`);
+  if(action==='ticket')await printDocument(d);
   if(action==='email'){
    const email=prompt('Correo del destinatario:',d.customer_email||'');if(!email)return;
-   await apiRequest(`/invoices/${d.id}/email`,{method:'POST',body:JSON.stringify({customerEmail:email})});alert('Correo enviado.');
+   await apiRequest(`/documents/${d.kind}/${d.id}/email`,{method:'POST',body:JSON.stringify({customerEmail:email})});alert('Correo aceptado por el servidor. Revisa la bandeja de entrada y spam del destinatario.');
   }
   if(action==='load')await loadQuoteToCart(d);
  }catch(error){alert(error.message);}finally{button.disabled=false;}
@@ -158,7 +187,7 @@ function initEnhancements(){
  bind('billing-new-customer-btn','click',()=>customerEditor(true));bind('billing-edit-customer-btn','click',()=>customerEditor(false));
  bind('save-quote-btn','click',saveQuoteFromCart);bind('quotes-module-create-btn','click',saveQuoteFromCart);
  for(const id of ['billing-discount-percent','billing-discount-reason'])bind(id,'input',()=>{if(operationLocked()){if(pendingSale){document.getElementById('billing-discount-percent').value=pendingSale.payload.discountPercent||0;document.getElementById('billing-discount-reason').value=pendingSale.payload.discountReason||'';}return;}renderCart();});
- bind('module-documents','click',documentAction);bind('billing-refresh-invoices-btn','click',refreshDocuments);
+ bind('module-documents','click',documentAction);bind('sale-document-confirmation','click',documentAction);bind('billing-refresh-invoices-btn','click',refreshDocuments);
  for(const id of ['billing-invoices-search','billing-invoices-from','billing-invoices-to','billing-invoices-type','documents-quote-search'])bind(id,'input',renderDocuments);
  bind('billing-invoices-clear-filters','click',()=>{for(const id of ['billing-invoices-search','billing-invoices-from','billing-invoices-to','billing-invoices-type'])document.getElementById(id).value='';renderDocuments();});
  bind('inventory-search','input',renderExtendedInventory);bind('inventory-status-filter','change',renderExtendedInventory);

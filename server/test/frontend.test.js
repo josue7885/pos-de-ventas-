@@ -12,8 +12,22 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  first=await open();let w=first.window;assert.deepEqual(errors,[]);
  w.document.getElementById('pin-input').value='000000';await w.loginUser();assert.equal(w.eval('currentEmployee'),null);
  w.document.getElementById('pin-input').value='729184';await w.loginUser();assert.equal(w.eval('currentEmployee.role'),'admin',alerts.join('\n'));
+ const navLabels=win=>Array.from(win.document.querySelectorAll('#nav-menu button'),el=>el.textContent.trim());
+ const tabLabels=win=>Array.from(win.document.querySelectorAll('#module-tabs button'),el=>el.textContent.trim());
+ assert.deepEqual(navLabels(w),['Caja','Documentos','Configuración']);
+ assert.deepEqual(tabLabels(w),['Venta','Mesas','Órdenes','Cocina','Turno y cierre']);
+ w.selectWorkspace('settings');assert.deepEqual(tabLabels(w),['General','Negocios','Usuarios']);
+ assert.equal(w.document.getElementById('setting-business_type').disabled,false);
+ w.selectWorkspace('documents');assert.deepEqual(tabLabels(w),['Comprobantes','Inventario','Reportes']);
+ w.setActiveModule('inventory');w.selectWorkspace('cash');w.selectWorkspace('documents');assert.equal(w.eval('activeModule'),'inventory');
+ w.selectWorkspace('cash');const firstTab=w.document.getElementById('tab-pos');firstTab.focus();firstTab.dispatchEvent(new w.KeyboardEvent('keydown',{key:'End',bubbles:true}));
+ assert.equal(w.eval('activeModule'),'cash');assert.equal(w.document.activeElement.id,'tab-cash');
+ w.document.activeElement.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Home',bubbles:true}));assert.equal(w.eval('activeModule'),'pos');
+ assert.equal(w.document.querySelectorAll('.module.active').length,1);
  await w.openShift();assert.equal(w.eval('state.shift.isOpen'),true);
  w.addToCart(1);w.openBillingModal('payment');assert.equal(w.document.getElementById('billing-cash-received').value,'5.09');await w.processSale();assert.equal(w.eval('state.sales.length'),1);assert.equal(w.eval('state.products[0].stock'),4);
+ assert.equal(w.document.getElementById('sale-document-confirmation').classList.contains('hidden'),false);
+ assert.equal(w.document.querySelectorAll('#sale-document-confirmation [data-document-action]').length,4);
  second=await open();let v=second.window;v.document.getElementById('pin-input').value='729184';await v.loginUser();assert.equal(v.eval('state.products[0].stock'),4);
  w.crypto.randomUUID=undefined;assert.match(w.newRequestId(),/^[a-f0-9]{32}$/);w.addToCart(1);w.openBillingModal('payment');loseNext=true;await w.processSale();assert.equal(w.eval('pendingSale.uncertain'),true);assert.equal(w.eval('cart.length'),1);
  await w.processSale();assert.equal(w.eval('pendingSale'),null);assert.equal(w.eval('state.sales.length'),2);await v.syncFromServer();assert.equal(v.eval('state.sales.length'),2);assert.equal(v.eval('state.products[0].stock'),3);
@@ -36,6 +50,17 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  loseOperation='/api/quotes';await w.saveQuoteFromCart();assert.equal(w.document.getElementById('operation-recovery-panel').classList.contains('hidden'),false);
  w.clearCart();await w.trackedOperation('quote','/quotes',null);await w.refreshDocuments();
  const quote=w.eval("documentDirectory.find(d=>d.kind==='quote')");assert.ok(quote);assert.equal(quote.total,1.13);assert.equal(w.eval('state.sales.length'),2);assert.equal(w.document.querySelectorAll('#documents-quotes-content img').length,0);
+ assert.ok(w.document.querySelector('[data-kind="quote"][data-document-action="email"]'));
+ const printDom=new JSDOM('<!DOCTYPE html><html></html>');let printed=0;
+ printDom.window.print=()=>printed++;printDom.window.focus=()=>{};w.open=()=>printDom.window;
+ await w.printDocument(quote);assert.equal(printed,1);assert.equal(printDom.window.document.querySelectorAll('script,img[onerror]').length,0);
+ assert.match(printDom.window.document.body.textContent,/Descuento \(20%\)/);assert.match(printDom.window.document.body.textContent,/1\.13/);
+ printDom.window.close();w.open=()=>null;
+ // The authenticated download path is also used for the business-specific PDF and JSON.
+ const downloads=[];w.URL.createObjectURL=blob=>{downloads.push({blob});return 'blob:local-test';};w.URL.revokeObjectURL=()=>{};
+ w.HTMLAnchorElement.prototype.click=function(){downloads.at(-1).filename=this.download;};
+ for(const action of ['json','pdf'])await w.documentAction({target:w.document.querySelector(`[data-kind="quote"][data-document-action="${action}"]`)});
+ assert.equal(JSON.parse(await downloads[0].blob.text()).number,quote.number);assert.match(downloads[0].filename,/^cotizacion-COT-.*\.json$/);assert.equal((await downloads[1].blob.text()).slice(0,4),'%PDF');
  await w.loadQuoteToCart(quote);assert.equal(w.getCartTotals().total,1.13);
  w.openBillingModal('payment');assert.notEqual(w.getComputedStyle(w.document.getElementById('confirm-billing-btn')).display,'none');await w.processSale();assert.equal(w.eval('state.sales.length'),3);assert.equal(w.eval('selectedQuoteId'),null);
  w.setActiveModule('inventory');await w.syncFromServer();
@@ -66,6 +91,19 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  assert.equal(w.eval('state.companySettings.tax_label'),'Impuesto UI',alerts.join('\n'));assert.equal(w.eval('state.companySettings.iva_rate'),0);
  await v.syncFromServer();assert.equal(v.getBusinessId(),'principal');assert.equal(v.eval('state.sales.length'),3);assert.equal(v.eval('state.companySettings.currency_code'),'USD');
  await w.switchBusiness('principal');w.document.getElementById('pin-input').value='729184';await w.loginUser();assert.equal(w.eval('state.sales.length'),3);
+ // Real sessions keep their existing role permissions within the three workspaces.
+ const cashier=w.eval("state.employees.find(u=>u.name==='Prueba UI')");
+ await v.logoutUser();v.document.getElementById('employee-select').value=String(cashier.id);v.document.getElementById('pin-input').value='654321';await v.loginUser();
+ assert.equal(v.eval('currentEmployee.role'),'cajero');assert.deepEqual(navLabels(v),['Caja','Documentos']);
+ v.setActiveModule('settings');assert.notEqual(v.eval('activeModule'),'settings');assert.equal(v.document.getElementById('setting-business_type').disabled,true);
+ await assert.rejects(v.apiRequest('/settings',{method:'PUT',body:JSON.stringify({business_type:'services'})}),error=>error.status===403);
+ for(const role of ['gerente','cocina']){
+  const {user}=await w.apiRequest('/users',{method:'POST',body:JSON.stringify({name:'Rol '+role,role,pin:'876543'})});
+  await v.logoutUser();v.document.getElementById('employee-select').value=String(user.id);v.document.getElementById('pin-input').value='876543';await v.loginUser();assert.equal(v.eval('currentEmployee.role'),role);
+  if(role==='gerente'){v.selectWorkspace('settings');assert.deepEqual(tabLabels(v),['Usuarios']);assert.equal(v.eval('activeModule'),'users');}
+  else{assert.deepEqual(navLabels(v),['Caja']);assert.deepEqual(tabLabels(v),['Cocina']);v.setActiveModule('inventory');assert.equal(v.eval('activeModule'),'kitchen');}
+  assert.equal(v.document.getElementById('setting-business_type').disabled,true);assert.equal(v.document.getElementById('module-settings').getAttribute('aria-hidden'),'true');
+ }
  // A delayed response body cannot populate a business selected after that request began.
  const realFetch=w.fetch;let releaseBody;
  const bodyGate=new Promise(resolve=>{releaseBody=resolve;});

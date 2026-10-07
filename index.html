@@ -52,7 +52,7 @@
           </div>
         </div>
 
-        <nav id="nav-menu" class="nav-menu"></nav>
+        <nav id="nav-menu" class="nav-menu" aria-label="Áreas de trabajo"></nav>
 
         <div class="sidebar-footer">
           <button id="logout-btn" class="ghost-btn">Cerrar sesión</button>
@@ -73,6 +73,11 @@
 
         <div id="operation-recovery-panel" class="panel hidden" role="status"></div>
 
+        <section class="workspace-navigation" aria-label="Navegación de secciones">
+          <h2 id="workspace-title">Caja</h2>
+          <div id="module-tabs" class="module-tabs" role="tablist" aria-label="Caja"></div>
+        </section>
+
         <section id="module-businesses" class="module hidden">
           <div class="panel"><h3>Administrar negocios</h3><p>Cada negocio conserva sus propios usuarios, caja, productos, ventas y configuración. Para ingresar se requiere una cuenta de ese negocio.</p>
             <div class="table-wrap"><table><thead><tr><th>Negocio</th><th>Acceso</th><th>Acciones</th></tr></thead><tbody id="businesses-list"></tbody></table></div>
@@ -89,6 +94,7 @@
           </form></div>
         </section>
         <section id="module-pos" class="module active">
+          <div id="sale-document-confirmation" class="panel hidden" aria-live="polite"></div>
           <div id="admin-hero" class="admin-hero panel">
             <div class="hero-copy">
               <span class="eyebrow">Panel ejecutivo</span>
@@ -480,7 +486,7 @@
 
             <form id="company-settings-form" class="settings-form">
               <div class="settings-grid"><div class="settings-group"><h4>Operación del negocio</h4>
-                <label for="setting-business_type">Tipo de negocio</label><select id="setting-business_type"></select><button id="apply-business-profile" type="button" class="ghost-btn small">Usar módulos sugeridos para este tipo</button>
+                <label for="setting-business_type">Tipo de negocio</label><select id="setting-business_type" aria-describedby="business-type-permission" disabled></select><button id="apply-business-profile" type="button" disabled class="ghost-btn small">Usar módulos sugeridos para este tipo</button><p id="business-type-permission">Solo el administrador de este negocio puede cambiar su tipo y configuración.</p>
                 <label for="setting-currency_code">Moneda (se fija al registrar operaciones)</label><select id="setting-currency_code"></select>
                 <label for="setting-number_locale">Formato de números</label><select id="setting-number_locale"></select>
                 <label for="setting-tax_label">Nombre del impuesto</label><input id="setting-tax_label" maxlength="30" value="IVA" required />

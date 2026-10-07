@@ -2594,3 +2594,19 @@ button:disabled {
 }
 #businesses-list td { overflow-wrap: anywhere; }
 #businesses-list button { margin: 0.2rem; }
+
+/* Three workspaces with role-filtered tabs. */
+.workspace-navigation { margin: 0 0 20px; min-width: 0; }
+.workspace-navigation h2 { margin: 0 0 12px; font-size: 1.4rem; }
+.module-tabs { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid #d8e2e9; padding-bottom: 12px; }
+.module-tab-btn { font: inherit; font-weight: 600; padding: 10px 16px; border: 1px solid #cad6df; border-radius: 10px; background: #fff; color: #334155; cursor: pointer; }
+.module-tab-btn:hover { background: #eef4fa; }
+.module-tab-btn.active { background: #173d60; border-color: #173d60; color: #fff; }
+.module-tab-btn:focus-visible, .nav-btn:focus-visible { outline: 3px solid #f1b441; outline-offset: 3px; }
+#sale-document-confirmation { border-left: 4px solid #178052; margin-bottom: 16px; }
+#sale-document-confirmation p { margin: 0 0 10px; }
+#sale-document-confirmation .sale-document-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 640px) {
+  .module-tabs { gap: 6px; }
+  .module-tab-btn { flex: 1 0 auto; padding: 10px 12px; font-size: .9rem; }
+}

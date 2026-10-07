@@ -168,6 +168,8 @@ async function openDatabase(dbPath,adminPin,adminName,releaseLock) {
     ensureColumn('invoices', 'customer_email', 'TEXT');
     ensureColumn('invoices', 'document_type', 'TEXT');
     ensureColumn('invoices', 'printed', 'INTEGER DEFAULT 0');
+    ensureColumn('invoices', 'profile_id', 'TEXT');
+    db.prepare('CREATE TABLE IF NOT EXISTS document_profiles (id TEXT PRIMARY KEY,profile TEXT NOT NULL)').run();
 
     db.prepare(`CREATE TABLE IF NOT EXISTS order_items (
       id INTEGER PRIMARY KEY,

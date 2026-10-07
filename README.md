@@ -2,12 +2,24 @@
 
 Punto de venta web con Node.js, Express y SQLite. Permite administrar varios negocios con usuarios, ventas, inventario, clientes, caja y configuración independientes. Incluye perfiles para tiendas, restaurantes, servicios y negocios mixtos. Los navegadores sincronizan cada 3 segundos dentro del negocio seleccionado.
 
+## Menú y pestañas
+
+| Área | Pestañas |
+| --- | --- |
+| Caja | Venta, Mesas, Órdenes, Cocina, Turno y cierre |
+| Documentos | Comprobantes, Inventario, Reportes |
+| Configuración | General, Negocios, Usuarios |
+
+Solo aparecen las pestañas permitidas para la cuenta y habilitadas en el negocio. Se recuerda la última pestaña de cada área durante la sesión. Cambiar de pestaña conserva el carrito. Las flechas, Inicio y Fin permiten recorrer las pestañas con el teclado.
+
+**Solo el administrador del negocio puede cambiar su tipo y configuración**, también cuando la solicitud se envía directamente a la API. El gerente conserva Usuarios dentro de Configuración, sin acceso a General ni a la administración de negocios. Consulta [la guía de navegación y comprobantes](docs/NAVEGACION_Y_COMPROBANTES.md).
+
 ## Varios negocios y configuración
 
-1. Entra como administrador del **Negocio principal** y abre **Negocios**.
+1. Entra como administrador del **Negocio principal** y abre **Configuración → Negocios**.
 2. Crea un negocio con nombre, tipo, moneda y PIN de su administrador inicial (6 a 12 dígitos).
 3. Pulsa **Ingresar** y accede con la cuenta de ese negocio.
-4. En **Configuración**, ajusta los datos de empresa, impuesto, pagos, vigencia de cotizaciones, mensaje del comprobante y módulos. Guarda los cambios.
+4. En **Configuración → General**, ajusta los datos de empresa, impuesto, pagos, vigencia de cotizaciones, mensaje del comprobante y módulos. Guarda los cambios.
 
 El selector del acceso y el botón **Cambiar negocio** permiten pasar a otro negocio. Cada pestaña conserva su selección. Solo los administradores del principal pueden crear, renombrar o desactivar negocios; cada negocio gestiona sus propias cuentas. La instalación anterior se conserva como principal.
 
@@ -23,7 +35,7 @@ $env:POS_ADMIN_PIN = Read-Host 'Define el PIN inicial del administrador (6 a 12 
 npm start
 ```
 
-Abre http://localhost:3000. Selecciona Administrador y usa el PIN que definiste. La variable solo se utiliza si aún no hay usuarios. Una base nueva inicia sin productos ni cuentas de demostración: agrega productos en Inventario y abre caja antes de cobrar. Después del primer inicio puedes quitar `POS_ADMIN_PIN` de tu entorno.
+Abre http://localhost:3000. Selecciona Administrador y usa el PIN que definiste. La variable solo se utiliza si aún no hay usuarios. Una base nueva inicia sin productos ni cuentas de demostración: agrega productos en **Documentos → Inventario** y abre el turno en **Caja → Turno y cierre** antes de cobrar. Después del primer inicio puedes quitar `POS_ADMIN_PIN` de tu entorno.
 
 En Linux/macOS puedes definir `POS_ADMIN_PIN` como variable de entorno antes de `npm start`. Para ejecutar las pruebas no se necesita definirla: los tests crean datos temporales aislados.
 
@@ -54,7 +66,7 @@ El cliente usa el origen desde el que se abrió. El botón **Configurar servidor
 
 ## Alcance de comprobantes
 
-El PDF es un **comprobante interno sin autorización fiscal**. La integración de Hacienda recuperada era una plantilla sin firma ni envío real. Los endpoints de activación/envío responden `501` para evitar presentar esa integración como operativa. El envío manual por correo genera el mismo PDF en memoria y requiere configuración SMTP. Las pruebas construyen adjuntos sin enviar mensajes; la entrega real debe validarse con tu proveedor. No se generan instaladores en esta revisión.
+El PDF es un **comprobante interno sin autorización fiscal**. La integración de Hacienda recuperada era una plantilla sin firma ni envío real. Los endpoints de activación/envío responden `501` para evitar presentar esa integración como operativa. La impresión, los PDF, los JSON y los adjuntos de correo de ventas y cotizaciones salen del mismo documento del servidor. Los nuevos documentos conservan el perfil público del emisor al emitirse; los anteriores sin perfil guardado indican que muestran la configuración actual. El correo es manual y requiere SMTP. Las pruebas envían exclusivamente a un receptor SMTP local de prueba y comparan sus adjuntos con las descargas; la entrega con tu proveedor requiere validación adicional. No se generan instaladores en esta revisión.
 
 ## Pruebas
 
@@ -62,7 +74,7 @@ El PDF es un **comprobante interno sin autorización fiscal**. La integración d
 npm test
 ```
 
-Las pruebas levantan servidores y bases temporales, incluyendo la interfaz en un DOM con HTTP real: acceso, roles, secretos, venta, reintentos simultáneos, falta de existencias, cierre de caja, cambios de usuarios, reinicio, persistencia y reversión ante errores de disco. También verifican migración del principal, separación entre negocios, configuración, pestañas independientes y respaldo/restauración de varias bases.
+Las pruebas levantan servidores y bases temporales, incluyendo la interfaz en un DOM con HTTP real: acceso, roles, secretos, venta, reintentos simultáneos, falta de existencias, cierre de caja, cambios de usuarios, reinicio, persistencia y reversión ante errores de disco. También verifican migración del principal, separación entre negocios, pestañas agrupadas por rol, restricción de cambios del tipo de negocio, conservación del emisor histórico, impresión HTML sin ejecutar contenido del cliente, igualdad de PDF/JSON descargados y adjuntos SMTP, y respaldo/restauración de varias bases.
 
 Para el recorrido de navegador (opcional, requiere Playwright y Chromium):
 
