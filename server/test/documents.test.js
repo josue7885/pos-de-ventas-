@@ -4,7 +4,7 @@ const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),net=
 const {spawn}=require('node:child_process');
 const {JSDOM}=require('jsdom');
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pos-documents-'));
-let child,base,admin,sale,quote,smtp,smtpPort,original;
+let child,base,admin,sale,quote,smtp,smtpPort,original,disconnectNext=false;
 const roles={},messages=[],sockets=new Set();
 async function start(){
  child=spawn(process.execPath,[path.resolve(__dirname,'../server.js')],{env:{...process.env,POS_DATA_DIR:dir,POS_ADMIN_PIN:'729184',PORT:'0'}});
@@ -28,7 +28,7 @@ before(async()=>{
   sockets.add(socket);socket.on('close',()=>sockets.delete(socket));socket.on('error',()=>{});
   socket.write('220 localhost test SMTP\r\n');let pending='',dataMode=false,body=[];
   socket.on('data',chunk=>{pending+=chunk.toString();let end;while((end=pending.indexOf('\r\n'))>=0){const line=pending.slice(0,end);pending=pending.slice(end+2);
-   if(dataMode){if(line==='.') {messages.push(body.join('\r\n'));body=[];dataMode=false;socket.write('250 queued locally\r\n');}else body.push(line.startsWith('..')?line.slice(1):line);continue;}
+   if(dataMode){if(line==='.') {messages.push(body.join('\r\n'));body=[];dataMode=false;if(disconnectNext){disconnectNext=false;socket.destroy();return;}socket.write('250 queued locally\r\n');}else body.push(line.startsWith('..')?line.slice(1):line);continue;}
    if(/^EHLO|^HELO/i.test(line))socket.write('250-localhost\r\n250-AUTH PLAIN\r\n250 SIZE 20000000\r\n');
    else if(/^AUTH /i.test(line))socket.write('235 authenticated\r\n');
    else if(line==='DATA'){dataMode=true;socket.write('354 finish with dot\r\n');}
@@ -122,4 +122,39 @@ test('profiles are deduplicated and durable and legacy documents remain explicit
  const legacy=await ok(`/documents/sale/${sale.id}/json`);assert.equal(legacy.profile_source,'legacy_current_settings');assert.equal(legacy.issuer.company_name,'Nombre nuevo');assert.equal(legacy.total,original.total);
  assert.match(await ok(`/documents/sale/${sale.id}/html`),/Documento anterior/);
  assert.equal((await ok(`/documents/quote/${quote.id}/json`)).issuer.company_name,original.issuer.company_name);
+});
+
+test('checkout automatically emails once across concurrent recovery and restart without an executive PIN',async()=>{
+ const product=(await ok('/products',{method:'POST',body:{name:'Entrega automática',category:'Servicios',price:10,stock:0,type:'servicio'}},201)).product;
+ // Configure an executive PIN: checkout still needs only an authorized signed-in cashier.
+ await ok('/auth/executive-pin',{method:'POST',body:{pin:'917263'}});
+ const body={items:[{id:product.id,price:10,qty:1}],subtotal:10,tax:0,total:10,paymentMethod:'tarjeta',customerName:'Receptor prueba',customerEmail:'auto@example.test',emailReceipt:true};
+ const key=crypto.randomUUID(),count=messages.length;
+ const results=await Promise.all([ok('/sales',{method:'POST',token:roles.cajero,body,key}),ok('/sales',{method:'POST',token:roles.cajero,body,key})]);
+ assert.equal(results[0].sale.id,results[1].sale.id);assert.equal(messages.length,count+1);
+ const replay=await ok('/sales',{method:'POST',token:roles.cajero,body,key});assert.equal(replay.emailDelivery.status,'accepted');assert.equal(messages.length,count+1);
+ assert.deepEqual(JSON.parse(attachment(messages.at(-1),'application/json')),await ok(`/documents/sale/${replay.sale.id}/json`));
+ const ticket=await ok(`/documents/sale/${replay.sale.id}/html?format=ticket`);assert.match(ticket,/html\{width:80mm/);assert.match(ticket,/Receptor prueba/);
+ await stop();await start();
+ const restarted=await ok('/sales',{method:'POST',token:roles.cajero,body,key});assert.equal(restarted.sale.id,replay.sale.id);assert.equal(restarted.emailDelivery.status,'accepted');assert.equal(messages.length,count+1);
+ // Settings protection remains in place; removing the dashboard does not remove admin security.
+ assert.equal((await request('/settings',{method:'PUT',body:{business_type:'retail'}})).status,403);
+});
+
+test('missing, invalid or unrequested email never prevents checkout or sends unintended mail',async()=>{
+ const product=(await ok('/products',{method:'POST',body:{name:'Sin correo',category:'Servicios',price:1,stock:0,type:'servicio'}},201)).product;
+ const count=messages.length;
+ for(const [email,emailReceipt,status] of [['',true,'skipped'],['a@example.test,b@example.test',true,'skipped'],['safe@example.test',false,'not_requested']]){
+  const result=await ok('/sales',{method:'POST',key:crypto.randomUUID(),body:{items:[{id:product.id,price:1,qty:1}],subtotal:1,tax:0,total:1,paymentMethod:'tarjeta',customerEmail:email,emailReceipt}});
+  assert.ok(result.sale.id);assert.equal(result.emailDelivery.status,status);
+ }
+ assert.equal(messages.length,count);
+});
+
+test('an SMTP disconnect after accepting DATA does not repeat mail or undo the sale',async()=>{
+ const product=(await ok('/products',{method:'POST',body:{name:'Correo incierto',category:'Servicios',price:2,stock:0,type:'servicio'}},201)).product;
+ const body={items:[{id:product.id,price:2,qty:1}],subtotal:2,tax:0,total:2,paymentMethod:'tarjeta',customerEmail:'disconnect@example.test',emailReceipt:true},key=crypto.randomUUID(),count=messages.length;
+ disconnectNext=true;
+ const result=await ok('/sales',{method:'POST',body,key});assert.ok(result.sale.id);assert.equal(result.emailDelivery.status,'uncertain');assert.equal(messages.length,count+1);
+ const repeat=await ok('/sales',{method:'POST',body,key});assert.equal(repeat.sale.id,result.sale.id);assert.equal(repeat.emailDelivery.status,'uncertain');assert.equal(messages.length,count+1);
 });

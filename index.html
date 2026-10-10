@@ -71,6 +71,13 @@
           </div>
         </header>
 
+        <section class="system-stock-search panel" aria-label="Consulta de existencias">
+          <label for="system-product-search">Consultar producto y existencias</label>
+          <div class="stock-search-controls"><input id="system-product-search" type="search" placeholder="Nombre, SKU, código de barras o categoría" autocomplete="off" aria-controls="system-product-results" /><button id="refresh-stock-search" type="button" class="ghost-btn small">Actualizar</button></div>
+          <small id="stock-search-status" role="status"></small>
+          <div id="system-product-results" class="hidden"></div>
+        </section>
+
         <div id="operation-recovery-panel" class="panel hidden" role="status"></div>
 
         <section class="workspace-navigation" aria-label="Navegación de secciones">
@@ -95,19 +102,113 @@
         </section>
         <section id="module-pos" class="module active">
           <div id="sale-document-confirmation" class="panel hidden" aria-live="polite"></div>
-          <div id="admin-hero" class="admin-hero panel">
-            <div class="hero-copy">
-              <span class="eyebrow">Panel ejecutivo</span>
-              <h3>Administración empresarial</h3>
-              <p>Ventas, caja, inventario, usuarios, facturación y operación del restaurante desde una sola vista.</p>
-            </div>
-            <div class="hero-cta">
-              <button id="quick-sale-btn" class="primary-btn small" type="button">Venta rápida</button>
-              <button id="open-settings-btn" class="ghost-btn small" type="button">Configuración</button>
-            </div>
-          </div>
+          <section id="sale-billing-panel" class="panel sale-billing-panel" aria-labelledby="sale-billing-title">
+            <div class="billing-heading"><div><span class="eyebrow">Comprobante interno</span><h3 id="sale-billing-title">Facturación de la venta</h3></div><div class="billing-total">Total <strong id="ticket-total-mini">0.00</strong> <span class="currency-code">USD</span></div></div>
+              <section class="sale-customer-panel">
+                <h4>Cliente y comprobante</h4>
+                <input id="billing-customer-search" type="search" placeholder="Buscar cliente por nombre, NIT o correo" aria-label="Buscar cliente" />
+                <select id="customer-select" class="mini-select full-width"><option value="">Cliente general / consumidor final</option></select>
+                <div class="form-actions"><button id="billing-new-customer-btn" type="button" class="ghost-btn small">Agregar cliente</button><button id="billing-edit-customer-btn" type="button" class="ghost-btn small">Editar cliente</button></div>
+                <p id="selected-quote-label" role="status"></p>
+                <div class="sale-adjustments">
+                  <label for="billing-discount-percent">Descuento autorizado (%)</label><input id="billing-discount-percent" type="number" min="0" max="100" step="0.01" value="0" />
+                  <label for="billing-discount-reason">Motivo</label><input id="billing-discount-reason" maxlength="240" placeholder="Requerido para aplicar descuento" />
+                </div>
+              </section>
+            <div class="billing-fields">
+         <div class="field-grid two-columns billing-only">
+           <div class="field-group">
+             <label for="billing-payment-method">Método de pago</label>
+             <select id="billing-payment-method" class="mini-select full-width">
+               <option value="efectivo">Efectivo</option>
+               <option value="tarjeta">Tarjeta</option>
+               <option value="transferencia">Transferencia</option>
+             </select>
+           </div>
 
-          <div id="dashboard-summary" class="dashboard-summary"></div>
+           <div class="field-group">
+             <label for="billing-cash-received">Monto recibido</label>
+             <input id="billing-cash-received" type="number" step="0.01" min="0" placeholder="0.00" />
+           </div>
+         </div>
+
+         <div class="field-grid two-columns">
+           <div class="field-group">
+             <label for="billing-customer-name">Nombre / razón social</label>
+             <input id="billing-customer-name" type="text" placeholder="Nombre del cliente" />
+           </div>
+
+           <div class="field-group">
+             <label for="billing-customer-type">Tipo de receptor</label>
+             <select id="billing-customer-type" class="mini-select full-width">
+               <option value="consumidor_final">Consumidor final</option>
+               <option value="credito_fiscal">Crédito fiscal</option>
+             </select>
+           </div>
+         </div>
+
+         <div class="field-grid two-columns">
+           <div class="field-group">
+             <label for="billing-customer-nit">NIT / DUI / documento</label>
+             <input id="billing-customer-nit" type="text" placeholder="CF, NIT o DUI" />
+           </div>
+
+           <div class="field-group">
+             <label for="billing-customer-giro">Giro o actividad</label>
+             <input id="billing-customer-giro" type="text" placeholder="Actividad comercial" />
+           </div>
+         </div>
+
+         <div class="field-group">
+           <label for="billing-customer-address">Dirección</label>
+           <input id="billing-customer-address" type="text" placeholder="Dirección fiscal o domicilio" />
+         </div>
+
+         <div class="field-grid two-columns">
+           <div class="field-group">
+             <label for="billing-customer-department">Departamento</label>
+             <input id="billing-customer-department" type="text" placeholder="Ej. San Salvador" />
+           </div>
+
+           <div class="field-group">
+             <label for="billing-customer-municipality">Municipio</label>
+             <input id="billing-customer-municipality" type="text" placeholder="Ej. San Salvador" />
+           </div>
+         </div>
+
+         <div class="field-grid two-columns">
+           <div class="field-group">
+             <label for="billing-customer-phone">Teléfono</label>
+             <input id="billing-customer-phone" type="tel" placeholder="(503) 0000-0000" />
+           </div>
+
+           <div class="field-group">
+             <label for="billing-customer-email">Correo electrónico</label>
+             <input id="billing-customer-email" type="email" placeholder="cliente@correo.com" />
+           </div>
+         </div>
+
+         <div class="field-group">
+           <label for="billing-customer-notes">Observaciones opcionales</label>
+           <textarea id="billing-customer-notes" rows="3" placeholder="Notas internas o referencia de la venta"></textarea>
+         </div>
+
+
+
+            </div>
+            <div class="receipt-delivery-options">
+              <label for="sale-receipt-output">Al confirmar el cobro</label>
+              <select id="sale-receipt-output"><option value="ticket">Imprimir ticket (80 mm)</option><option value="pdf">Descargar PDF (A4)</option><option value="none">Solo guardar comprobante</option></select>
+              <label class="checkbox-label"><input id="sale-email-receipt" type="checkbox" checked /> Enviar PDF y JSON al correo del cliente</label>
+              <small>El correo requiere SMTP configurado. Si falla la entrega, la venta permanece registrada.</small>
+              <button id="save-customer-btn" class="ghost-btn small" type="button">Guardar cliente</button>
+            </div>
+              <div class="action-row">
+                <button id="process-sale-btn" class="primary-btn large">Cobrar venta</button>
+                <button id="save-quote-btn" class="ghost-btn large" type="button">Guardar cotización</button>
+                <button id="send-kitchen-btn" class="ghost-btn large" title="Enviar la orden actual a cocina">Enviar a cocina</button>
+              </div>
+          </section>
 
           <div class="pos-grid">
             <div class="catalog-panel panel">
@@ -150,45 +251,6 @@
                 </div>
               </div>
 
-              <div class="payment-box compact-billing-box">
-                <div class="payment-header">
-                 <div>
-                   <span class="eyebrow">Facturación</span>
-                   <h4>Venta actual</h4>
-                 </div>
-                 <span class="payment-pill">Comprobante interno</span>
-                </div>
-
-                <div class="quick-sale-summary">
-                 <div>
-                   <small>Subtotal</small>
-                   <strong><span class="currency-code">USD</span> <span id="ticket-subtotal-mini">0.00</span></strong>
-                 </div>
-                 <div>
-                   <small>Total</small>
-                   <strong><span class="currency-code">USD</span> <span id="ticket-total-mini">0.00</span></strong>
-                 </div>
-                </div>
-
-                <button id="quick-billing-btn" class="ghost-btn small full-width-btn" type="button">Ingresar datos del comprobante</button>
-              </div>
-
-              <section class="sale-customer-panel">
-                <h4>Cliente y comprobante</h4>
-                <input id="billing-customer-search" type="search" placeholder="Buscar cliente por nombre, NIT o correo" aria-label="Buscar cliente" />
-                <select id="customer-select" class="mini-select full-width"><option value="">Cliente general / consumidor final</option></select>
-                <div class="form-actions"><button id="billing-new-customer-btn" type="button" class="ghost-btn small">Agregar cliente</button><button id="billing-edit-customer-btn" type="button" class="ghost-btn small">Editar cliente</button></div>
-                <p id="selected-quote-label" role="status"></p>
-                <div class="sale-adjustments">
-                  <label for="billing-discount-percent">Descuento autorizado (%)</label><input id="billing-discount-percent" type="number" min="0" max="100" step="0.01" value="0" />
-                  <label for="billing-discount-reason">Motivo</label><input id="billing-discount-reason" maxlength="240" placeholder="Requerido para aplicar descuento" />
-                </div>
-              </section>
-              <div class="action-row">
-                <button id="process-sale-btn" class="primary-btn large">Cobrar venta</button>
-                <button id="save-quote-btn" class="ghost-btn large" type="button">Guardar cotización</button>
-                <button id="send-kitchen-btn" class="ghost-btn large" title="Enviar la orden actual a cocina">Enviar a cocina</button>
-              </div>
             </aside>
           </div>
         </section>
@@ -758,7 +820,7 @@
        <div class="modal-header">
          <div>
            <span class="eyebrow">Comprobante interno</span>
-           <h3 id="billing-modal-title">Datos del comprobante</h3>
+           <h3 id="billing-modal-title">Confirmar cobro</h3>
          </div>
          <button type="button" id="close-billing-modal-btn" class="icon-close" aria-label="Cerrar">×</button>
        </div>
@@ -775,87 +837,7 @@
            </div>
          </div>
 
-         <div class="field-grid two-columns billing-only">
-           <div class="field-group">
-             <label for="billing-payment-method">Método de pago</label>
-             <select id="billing-payment-method" class="mini-select full-width">
-               <option value="efectivo">Efectivo</option>
-               <option value="tarjeta">Tarjeta</option>
-               <option value="transferencia">Transferencia</option>
-             </select>
-           </div>
-
-           <div class="field-group">
-             <label for="billing-cash-received">Monto recibido</label>
-             <input id="billing-cash-received" type="number" step="0.01" min="0" placeholder="0.00" />
-           </div>
-         </div>
-
-         <div class="field-grid two-columns">
-           <div class="field-group">
-             <label for="billing-customer-name">Nombre / razón social</label>
-             <input id="billing-customer-name" type="text" placeholder="Nombre del cliente" />
-           </div>
-
-           <div class="field-group">
-             <label for="billing-customer-type">Tipo de receptor</label>
-             <select id="billing-customer-type" class="mini-select full-width">
-               <option value="consumidor_final">Consumidor final</option>
-               <option value="credito_fiscal">Crédito fiscal</option>
-             </select>
-           </div>
-         </div>
-
-         <div class="field-grid two-columns">
-           <div class="field-group">
-             <label for="billing-customer-nit">NIT / DUI / documento</label>
-             <input id="billing-customer-nit" type="text" placeholder="CF, NIT o DUI" />
-           </div>
-
-           <div class="field-group">
-             <label for="billing-customer-giro">Giro o actividad</label>
-             <input id="billing-customer-giro" type="text" placeholder="Actividad comercial" />
-           </div>
-         </div>
-
-         <div class="field-group">
-           <label for="billing-customer-address">Dirección</label>
-           <input id="billing-customer-address" type="text" placeholder="Dirección fiscal o domicilio" />
-         </div>
-
-         <div class="field-grid two-columns">
-           <div class="field-group">
-             <label for="billing-customer-department">Departamento</label>
-             <input id="billing-customer-department" type="text" placeholder="Ej. San Salvador" />
-           </div>
-
-           <div class="field-group">
-             <label for="billing-customer-municipality">Municipio</label>
-             <input id="billing-customer-municipality" type="text" placeholder="Ej. San Salvador" />
-           </div>
-         </div>
-
-         <div class="field-grid two-columns">
-           <div class="field-group">
-             <label for="billing-customer-phone">Teléfono</label>
-             <input id="billing-customer-phone" type="tel" placeholder="(503) 0000-0000" />
-           </div>
-
-           <div class="field-group">
-             <label for="billing-customer-email">Correo electrónico</label>
-             <input id="billing-customer-email" type="email" placeholder="cliente@correo.com" />
-           </div>
-         </div>
-
-         <div class="field-group">
-           <label for="billing-customer-notes">Observaciones opcionales</label>
-           <textarea id="billing-customer-notes" rows="3" placeholder="Notas internas o referencia de la venta"></textarea>
-         </div>
-
-
-
          <div class="modal-actions">
-           <button id="save-customer-btn" class="ghost-btn small" type="button">Guardar cliente</button>
            <button id="confirm-billing-btn" class="primary-btn small" type="button">Confirmar cobro</button>
          </div>
        </div>

@@ -97,10 +97,6 @@ function getCompanySettings() {
   return state.companySettings || {};
 }
 
-function canAccessExecutivePanel() {
-  return Boolean(currentEmployee && currentEmployee.role === 'admin');
-}
-
 function canManageUserAccounts() {
   return Boolean(currentEmployee && ['admin', 'gerente'].includes(currentEmployee.role));
 }
@@ -185,8 +181,9 @@ async function syncFromServer() {
   const userId = currentEmployee.id;
   const data = await apiRequest('/sync');
   if (seq !== syncSequence || !currentEmployee || currentEmployee.id !== userId) return;
+  stockLastUpdated=Date.now();stockSyncError=false;
   const stamp=JSON.stringify([data.products,data.sales,data.shift,data.orders,data.user,data.rooms,data.tables,data.categories,data.settings]);
-  if (stamp===lastSnapshot) { if(activeModule==='documents')refreshDocuments(); return; }
+  if (stamp===lastSnapshot) { renderStockSearch();if(activeModule==='documents')refreshDocuments(); return; }
   lastSnapshot=stamp;
   currentEmployee=data.user;
   if(data.settings){state.companySettings=data.settings;applyCompanySettings(data.settings);applyBusinessConfiguration();}
@@ -199,10 +196,10 @@ async function syncFromServer() {
   const category=document.getElementById('category-filter')?.value;
   renderCategoryFilter();
   if(category && document.getElementById('category-filter')) document.getElementById('category-filter').value=category;
-  renderProducts();renderInventory();renderCashPanel();renderReports();
+  renderProducts();renderStockSearch();renderInventory();renderCashPanel();renderReports();
   for(const field of draftFields){const el=document.getElementById(field.id);if(el){el.value=field.value;if(el.type==='checkbox')el.checked=field.checked;}}
   if(focused) document.getElementById(focused)?.focus();
-  renderOrders();renderKitchenOrders();renderTables();renderDashboardSummary();updateHeader();renderNav();
+  renderOrders();renderKitchenOrders();renderTables();updateHeader();renderNav();
   if(activeModule==='documents')refreshDocuments();
 }
 function initOrderEventStream() {
@@ -210,6 +207,7 @@ function initOrderEventStream() {
   syncTimer=setInterval(() => syncFromServer().catch(error => {
     const badge=document.getElementById('shift-status');
     if (badge) badge.textContent='Sin sincronización';
+    stockSyncError=true;renderStockSearch();
     if (error.status===401 || error.status===404) expireSession();
   }), 3000);
 }
@@ -601,7 +599,7 @@ function openBillingModal(action = 'payment') {
   const totals = getCartTotals();
   const modal = document.getElementById('billing-modal');
   modal.classList.remove('customer-only');
-  document.getElementById('billing-modal-title').textContent='Datos del comprobante';
+  document.getElementById('billing-modal-title').textContent='Confirmar cobro';
   const modalCustomerSummary = document.getElementById('modal-customer-summary');
   const modalTotalSummary = document.getElementById('modal-total-summary');
   const confirmBtn = document.getElementById('confirm-billing-btn');
@@ -616,7 +614,7 @@ function openBillingModal(action = 'payment') {
   }
 
   const cashReceived = document.getElementById('billing-cash-received') || document.getElementById('cash-received');
-  if (cashReceived) {
+  if (cashReceived && !cashReceived.value) {
     cashReceived.value = totals.total.toFixed(2);
   }
 
@@ -774,35 +772,6 @@ function getAvailableTableForOrder(preferredName = '') {
   return fallback;
 }
 
-function renderDashboardSummary() {
-  const dashboard = document.getElementById('dashboard-summary');
-  if (!dashboard) return;
-
-  const totalSales = state.sales.reduce((sum, sale) => sum + Number(sale.total || 0), 0);
-  const productsSold = state.sales.reduce((sum, sale) => sum + sale.items.reduce((acc, item) => acc + Number(item.qty || 0), 0), 0);
-  const openOrders = (state.orders || []).filter((order) => !['served', 'cancelled'].includes(order.status)).length;
-  const activeTables = (state.tables || []).filter((table) => table.status !== 'libre').length;
-
-  dashboard.innerHTML = `
-    <div class="metric-card">
-      <span>Ventas del día</span>
-      <strong>${currency(totalSales)}</strong>
-    </div>
-    <div class="metric-card">
-      <span>Productos vendidos</span>
-      <strong>${productsSold}</strong>
-    </div>
-    <div class="metric-card">
-      <span>Órdenes activas</span>
-      <strong>${openOrders}</strong>
-    </div>
-    <div class="metric-card">
-      <span>Mesas ocupadas</span>
-      <strong>${activeTables}</strong>
-    </div>
-  `;
-}
-
 function setActiveModule(moduleId) {
   if (!currentEmployee) return;
   const allowed=availableModules();
@@ -817,7 +786,6 @@ function setActiveModule(moduleId) {
   if (moduleId === 'settings') fillCompanySettingsForm(state.companySettings);
   if (moduleId === 'documents') refreshDocuments();
   if (moduleId === 'inventory') refreshInventoryHistory();
-  if (moduleId === 'pos') renderDashboardSummary();
 }
 
 async function loginUser() {
@@ -841,7 +809,6 @@ async function loginUser() {
     await fetchUsersFromServer();
     restorePendingSale();refreshPendingOperations();
     errorText.classList.add('hidden');document.getElementById('pin-input').value='';
-    document.getElementById('admin-hero')?.classList.toggle('hidden',!canAccessExecutivePanel());
     setActiveModule(currentEmployee.role==='cocina'?'kitchen':currentEmployee.role==='mesero'?'tables':currentEmployee.role==='contador'?'reports':'pos');
     renderCart();showApp();initOrderEventStream();
   } catch(error) {
@@ -1024,20 +991,23 @@ async function processSale() {
   if (!pendingSale && paymentMethod==='efectivo' && (!Number.isFinite(receivedAmount) || receivedAmount<totals.total)) return alert('Efectivo insuficiente o inválido.');
   if (!pendingSale && localStorage.getItem(pendingSaleKey())) { restorePendingSale();renderCart();return; }
   if (!pendingSale) {
-    pendingSale={key:newRequestId(),payload:{...cartPayload(),paymentMethod,receivedAmount}};
+    pendingSale={key:newRequestId(),output:document.getElementById('sale-receipt-output').value,payload:{...cartPayload(),paymentMethod,receivedAmount,emailReceipt:document.getElementById('sale-email-receipt').checked}};
     try { localStorage.setItem(pendingSaleKey(),JSON.stringify(pendingSale)); }
     catch (_) { pendingSale=null;return alert('No se pudo guardar el identificador de venta. No se envió el cobro.'); }
   }
+  const receiptOutput=pendingSale.output||'ticket';
+  const receiptPopup=receiptOutput==='ticket'?openReceiptWindow():null;
   saleInFlight=true;
   try {
     const data=await apiRequest('/sales',{method:'POST',headers:{'Idempotency-Key':pendingSale.key},body:JSON.stringify(pendingSale.payload)});
     if (!data.sale?.id) throw new Error('No se recibió confirmación de la venta.');
     // Mark committed before rendering or requesting PDFs. Those failures must never create a second sale.
-    localStorage.removeItem(pendingSaleKey());pendingSale=null;cart=[];resetSaleAdjustments();renderCart();
+    localStorage.removeItem(pendingSaleKey());pendingSale=null;cart=[];resetSaleAdjustments();resetCheckoutCustomer();closeBillingModal();renderCart();
     await syncFromServer().catch(()=>alert('Venta confirmada. Actualiza para consultar el saldo y las existencias.'));
-    showConfirmedSale(data.sale,data.invoiceNumber);
-    alert(`Venta confirmada #${data.sale.id}. Total: ${currency(data.sale.total)}${data.replayed?' (operación recuperada, sin duplicar)':''}.`);
+    showConfirmedSale(data.sale,data.invoiceNumber,data.emailDelivery);
+    await deliverSaleReceipt(lastConfirmedDocument,receiptOutput,receiptPopup);
   } catch(error) {
+    if(receiptPopup && !receiptPopup.closed)receiptPopup.close();
     if (pendingSale && error.status>=400 && error.status<500 && !pendingSale.uncertain) {
       localStorage.removeItem(pendingSaleKey());pendingSale=null;
       await syncFromServer().catch(()=>{});
@@ -1883,8 +1853,6 @@ function initializeApp() {
   if (clearCartBtnEl) clearCartBtnEl.addEventListener('click', clearCart);
   const processSaleBtnEl = document.getElementById('process-sale-btn');
   if (processSaleBtnEl) processSaleBtnEl.addEventListener('click', () => openBillingModal('payment'));
-  const quickBillingBtnEl = document.getElementById('quick-billing-btn');
-  if (quickBillingBtnEl) quickBillingBtnEl.addEventListener('click', () => openBillingModal('payment'));
   const saveCustomerBtnEl = document.getElementById('save-customer-btn');
   if (saveCustomerBtnEl) saveCustomerBtnEl.addEventListener('click', saveCustomerFromForm);
   const confirmBillingBtnEl = document.getElementById('confirm-billing-btn');
@@ -1951,12 +1919,6 @@ function initializeApp() {
   if (productFormEl) productFormEl.addEventListener('submit', handleProductSubmit);
   const refreshReportBtnEl = document.getElementById('refresh-report-btn');
   if (refreshReportBtnEl) refreshReportBtnEl.addEventListener('click', renderReports);
-
-  const quickSaleBtn = document.getElementById('quick-sale-btn');
-  if (quickSaleBtn) quickSaleBtn.addEventListener('click', () => setActiveModule('pos'));
-
-  const openSettingsBtn = document.getElementById('open-settings-btn');
-  if (openSettingsBtn) openSettingsBtn.addEventListener('click', () => setActiveModule('settings'));
 
   const activateBizBtn = document.getElementById('activate-business-btn');
   if (activateBizBtn) activateBizBtn.addEventListener('click', activateBusiness);

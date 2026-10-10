@@ -24,13 +24,24 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  assert.equal(w.eval('activeModule'),'cash');assert.equal(w.document.activeElement.id,'tab-cash');
  w.document.activeElement.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Home',bubbles:true}));assert.equal(w.eval('activeModule'),'pos');
  assert.equal(w.document.querySelectorAll('.module.active').length,1);
+ assert.equal(w.document.getElementById('admin-hero'),null);
+ assert.ok(w.document.getElementById('sale-billing-panel').contains(w.document.getElementById('billing-customer-email')));
+ assert.ok(w.document.getElementById('sale-billing-panel').contains(w.document.getElementById('billing-payment-method')));
+ assert.ok(w.document.getElementById('sale-billing-panel').compareDocumentPosition(w.document.querySelector('.pos-grid')) & w.Node.DOCUMENT_POSITION_FOLLOWING);
+ const stockSearch=w.document.getElementById('system-product-search');stockSearch.value='cafe';stockSearch.dispatchEvent(new w.Event('input'));
+ assert.match(w.document.getElementById('system-product-results').textContent,/Café/);assert.match(w.document.getElementById('system-product-results').textContent,/5 unidad/);
+ w.selectWorkspace('settings');assert.equal(w.document.getElementById('system-product-results').classList.contains('hidden'),false);w.selectWorkspace('cash');
  await w.openShift();assert.equal(w.eval('state.shift.isOpen'),true);
+ const autoPrintDom=new JSDOM('<!DOCTYPE html><html></html>');let autoPrinted=0;autoPrintDom.window.print=()=>autoPrinted++;autoPrintDom.window.focus=()=>{};w.open=()=>autoPrintDom.window;
  w.addToCart(1);w.openBillingModal('payment');assert.equal(w.document.getElementById('billing-cash-received').value,'5.09');await w.processSale();assert.equal(w.eval('state.sales.length'),1);assert.equal(w.eval('state.products[0].stock'),4);
+ assert.equal(autoPrinted,1);assert.match(autoPrintDom.window.document.querySelector('style').textContent,/80mm/);autoPrintDom.window.close();w.open=()=>null;
+ assert.match(w.document.getElementById('system-product-results').textContent,/4 unidad/);
+ assert.match(w.document.getElementById('sale-document-confirmation').textContent,/cliente no tiene correo/);
  assert.equal(w.document.getElementById('sale-document-confirmation').classList.contains('hidden'),false);
  assert.equal(w.document.querySelectorAll('#sale-document-confirmation [data-document-action]').length,4);
  second=await open();let v=second.window;v.document.getElementById('pin-input').value='729184';await v.loginUser();assert.equal(v.eval('state.products[0].stock'),4);
  w.crypto.randomUUID=undefined;assert.match(w.newRequestId(),/^[a-f0-9]{32}$/);w.addToCart(1);w.openBillingModal('payment');loseNext=true;await w.processSale();assert.equal(w.eval('pendingSale.uncertain'),true);assert.equal(w.eval('cart.length'),1);
- await w.processSale();assert.equal(w.eval('pendingSale'),null);assert.equal(w.eval('state.sales.length'),2);await v.syncFromServer();assert.equal(v.eval('state.sales.length'),2);assert.equal(v.eval('state.products[0].stock'),3);
+ await w.processSale();assert.equal(w.eval('pendingSale'),null);assert.equal(w.eval('state.sales.length'),2);await v.syncFromServer();assert.equal(v.eval('state.sales.length'),2);assert.equal(v.eval('state.products[0].stock'),3);assert.match(w.document.getElementById('sale-document-confirmation').textContent,/Permite ventanas emergentes/);
  w.openUserForm();w.document.getElementById('user-form-name').value='Prueba UI';w.document.getElementById('user-pin').value='654321';w.document.getElementById('user-role-input').value='cajero';await w.handleUserSubmit({preventDefault(){}});assert.equal(w.eval("state.employees.some(u=>u.name==='Prueba UI')"),true);
  // Adapted UI: SKU lookup, fractional quantity, customer directory, quotes and receiving.
  w.setActiveModule('inventory');w.openProductForm();
@@ -43,7 +54,8 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  w.document.getElementById('billing-discount-percent').value='20';w.document.getElementById('billing-discount-reason').value='Prueba DOM';w.renderCart();assert.equal(w.getCartTotals().total,1.13);
  w.document.getElementById('billing-new-customer-btn').click();
  assert.notEqual(w.getComputedStyle(w.document.getElementById('save-customer-btn')).display,'none');
- assert.equal(w.getComputedStyle(w.document.getElementById('confirm-billing-btn')).display,'none');
+ assert.equal(w.document.getElementById('billing-modal').classList.contains('hidden'),true);
+ assert.equal(w.document.activeElement.id,'billing-customer-name');
  w.document.getElementById('billing-customer-name').value='<img src=x onerror=alert(1)>';
  w.document.getElementById('billing-customer-email').value='cliente@example.test';
  await w.saveCustomerFromForm();w.closeBillingModal();assert.equal(w.document.querySelectorAll('#customer-select img').length,0);
@@ -62,7 +74,7 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  for(const action of ['json','pdf'])await w.documentAction({target:w.document.querySelector(`[data-kind="quote"][data-document-action="${action}"]`)});
  assert.equal(JSON.parse(await downloads[0].blob.text()).number,quote.number);assert.match(downloads[0].filename,/^cotizacion-COT-.*\.json$/);assert.equal((await downloads[1].blob.text()).slice(0,4),'%PDF');
  await w.loadQuoteToCart(quote);assert.equal(w.getCartTotals().total,1.13);
- w.openBillingModal('payment');assert.notEqual(w.getComputedStyle(w.document.getElementById('confirm-billing-btn')).display,'none');await w.processSale();assert.equal(w.eval('state.sales.length'),3);assert.equal(w.eval('selectedQuoteId'),null);
+ w.document.getElementById('sale-receipt-output').value='pdf';w.document.getElementById('billing-cash-received').value='10';w.openBillingModal('payment');assert.equal(w.document.getElementById('billing-cash-received').value,'10');assert.notEqual(w.getComputedStyle(w.document.getElementById('confirm-billing-btn')).display,'none');await w.processSale();assert.equal(w.eval('state.sales.length'),3);assert.equal(w.eval('selectedQuoteId'),null);assert.match(downloads.at(-1).filename,/^comprobante-.*\.pdf$/);assert.match(w.document.getElementById('sale-document-confirmation').textContent,/configura y activa SMTP/);assert.equal(w.document.getElementById('billing-customer-email').value,'');assert.equal(w.document.getElementById('billing-customer-name').value,'');assert.equal(w.document.getElementById('customer-select').value,'');
  w.setActiveModule('inventory');await w.syncFromServer();
  for(const [id,value] of Object.entries({'receive-product':String(added.id),'receive-quantity':'1','receive-unit-cost':'3','receive-supplier':'Proveedor UI','receive-reference':'UI-REC-1'}))w.document.getElementById(id).value=value;
  loseOperation='/api/inventory/receive';await w.receiveInventory({preventDefault(){},currentTarget:w.document.getElementById('receive-stock-form')});
@@ -80,7 +92,7 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  w.document.getElementById('business-create-form').reset();assert.equal(w.document.getElementById('recover-business-btn').classList.contains('hidden'),false);
  await w.recoverBusiness();assert.equal(w.sessionStorage.getItem(creationKey),null);
  const childId=w.eval("businessDirectory.find(b=>b.name==='Servicios UI').id"),rootJournal=w.pendingSaleKey();
- await w.switchBusiness(childId);assert.equal(w.eval('currentEmployee'),null);assert.equal(w.getBusinessId(),childId);
+ await w.switchBusiness(childId);assert.equal(w.document.getElementById('system-product-search').value,'');assert.equal(w.document.getElementById('system-product-results').textContent,'');assert.equal(w.eval('currentEmployee'),null);assert.equal(w.getBusinessId(),childId);
  w.document.getElementById('pin-input').value='987654';await w.loginUser();
  assert.equal(w.eval('currentEmployee.name'),'Dueño Servicios',alerts.join('\n'));assert.equal(w.eval('state.products.length'),0);assert.equal(w.eval('state.sales.length'),0);assert.notEqual(w.pendingSaleKey(),rootJournal);
  assert.equal(w.document.querySelector('[data-module="tables"]'),null);assert.equal(w.document.querySelector('[data-module="businesses"]'),null);

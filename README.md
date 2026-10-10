@@ -66,7 +66,7 @@ El cliente usa el origen desde el que se abrió. El botón **Configurar servidor
 
 ## Alcance de comprobantes
 
-El PDF es un **comprobante interno sin autorización fiscal**. La integración de Hacienda recuperada era una plantilla sin firma ni envío real. Los endpoints de activación/envío responden `501` para evitar presentar esa integración como operativa. La impresión, los PDF, los JSON y los adjuntos de correo de ventas y cotizaciones salen del mismo documento del servidor. Los nuevos documentos conservan el perfil público del emisor al emitirse; los anteriores sin perfil guardado indican que muestran la configuración actual. El correo es manual y requiere SMTP. Las pruebas envían exclusivamente a un receptor SMTP local de prueba y comparan sus adjuntos con las descargas; la entrega con tu proveedor requiere validación adicional. No se generan instaladores en esta revisión.
+El PDF es un **comprobante interno sin autorización fiscal**. La integración de Hacienda recuperada era una plantilla sin firma ni envío real. Los endpoints de activación/envío responden `501` para evitar presentar esa integración como operativa. La impresión, los PDF, los JSON y los adjuntos de correo de ventas y cotizaciones salen del mismo documento del servidor. Los nuevos documentos conservan el perfil público del emisor al emitirse; los anteriores sin perfil guardado indican que muestran la configuración actual. El cobro puede imprimir un ticket de 80 mm o descargar un PDF A4, y enviar automáticamente PDF/JSON al cliente si la casilla de correo está marcada y SMTP está configurado. Los reintentos de la misma venta no repiten automáticamente el correo; el reenvío manual sigue disponible. Las pruebas envían exclusivamente a un receptor SMTP local de prueba y comparan sus adjuntos con las descargas; la entrega con tu proveedor requiere validación adicional. No se generan instaladores en esta revisión.
 
 ## Pruebas
 
@@ -116,6 +116,7 @@ No se implementaron devoluciones fiscales, anulaciones con notas de crédito, co
 
 ## Mejoras de la versión compartida
 
+- **Facturación rápida:** datos del cliente y pago arriba del catálogo, sin panel ejecutivo; confirmación de cobro con ticket/PDF y correo opcional automático. Buscador de existencias en todas las áreas, limitado al negocio activo.
 - **Documentos y cotizaciones:** búsqueda, filtros, ticket, PDF/JSON, correo manual y conversión de cotizaciones al carrito. La vigencia predeterminada es de 15 días y se configura de 1 a 90 días por negocio. No cobran ni reservan inventario.
 - **Clientes:** directorio con búsqueda y edición, con datos completos guardados en el servidor.
 - **Inventario:** SKU/código único, entrada por lector con Enter, servicios, unidades fraccionarias, categorías, costos, mínimos, recepción e historial. Las entradas calculan costo promedio ponderado y registran la compra, incluido su IVA, sin duplicarla al reintentar.

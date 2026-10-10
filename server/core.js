@@ -1,3 +1,4 @@
+const {sendSaleReceipt}=require('./document-mail');
 const crypto = require('crypto');
 const {receiptDocument}=require('./receipt');
 const {loadDocument,captureProfile,documentFilename}=require('./documents');
@@ -12,7 +13,7 @@ module.exports = function registerCore(app, getDb, { profile, nextInvoiceData, a
     if (value === null || value === '' || !Number.isFinite(n) || n < 0 || n > 1000000) fail(400, `${label} inválido`);
     return Math.round((n + Number.EPSILON) * 100);
   };
-  const handle = fn => (req, res, next) => { try { fn(req, res); } catch (e) { next(e); } };
+  const handle = fn => (req, res, next) => { try { Promise.resolve(fn(req, res)).catch(next); } catch (e) { next(e); } };
   function movement(productId, delta, balance, reason, userId) {
     db().prepare('INSERT INTO inventory_movements (product_id,delta,balance,reason,user_id,created_at) VALUES (?,?,?,?,?,?)').run(productId,delta,balance,reason,userId,new Date().toISOString());
   }
@@ -114,7 +115,7 @@ module.exports = function registerCore(app, getDb, { profile, nextInvoiceData, a
     if (!result.changes) fail(404, 'Producto no encontrado');
     res.json({ success: true });
   }));
-  app.post('/api/sales', handle((req, res) => {
+  app.post('/api/sales', handle(async (req, res) => {
     const input = req.body || {};
     const key = req.get('Idempotency-Key');
     if (!key || !/^[a-zA-Z0-9_-]{16,100}$/.test(key)) fail(400, 'Se requiere un identificador único de venta.');
@@ -159,10 +160,13 @@ module.exports = function registerCore(app, getDb, { profile, nextInvoiceData, a
       db().prepare('UPDATE invoices SET profile_id=? WHERE sale_id=?').run(captureProfile(db(),profile()),saleId);
       addVatBookEntry({ number,subtotal:subtotal/100,tax:tax/100,total:total/100,createdAt:date,customerName:customer.name,customerNit:customer.nit,tipo_receptor:type });
       db().prepare('INSERT INTO sale_requests (request_key,user_id,fingerprint,sale_id) VALUES (?,?,?,?)').run(key,req.user.id,fingerprint,saleId);
+      if(input.emailReceipt===true)db().prepare("INSERT INTO sale_email_delivery(sale_id,recipient,status,updated_at) VALUES (?,?,'ready',?)").run(saleId,customer.email.trim(),date);
       return { saleId, replayed: false };
     })();
     const invoice = db().prepare('SELECT number FROM invoices WHERE sale_id=?').get(result.saleId);
-    res.json({ sale: saleFor(result.saleId), invoiceNumber: invoice.number, replayed: result.replayed });
+    let emailDelivery;
+    try{emailDelivery=await sendSaleReceipt(db(),profile(),result.saleId);}catch(error){emailDelivery={status:'uncertain',message:'Venta registrada. No se pudo confirmar el correo; verifica el envío antes de reintentar.'};}
+    res.json({ sale: saleFor(result.saleId), invoiceNumber: invoice.number, replayed: result.replayed, emailDelivery });
   }));
   app.get('/api/invoices/:saleId/pdf', handle((req, res) => {
     const document=loadDocument(db(),profile(),'sale',req.params.saleId);

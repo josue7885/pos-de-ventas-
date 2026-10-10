@@ -31,7 +31,7 @@ module.exports=function(app,getDb,{profile,requireAdminOrManager,ensureOpenPerio
   if(req.params.format==='json'){
    res.setHeader('Content-Disposition',`attachment; filename="${documentFilename(document)}.json"`);return res.json(document);
   }
-  if(req.params.format==='html')return res.type('html').set('X-Content-Type-Options','nosniff').send(receiptHtml(document));
+  if(req.params.format==='html')return res.type('html').set('X-Content-Type-Options','nosniff').send(receiptHtml(document,{format:req.query.format==='ticket'?'ticket':'a4'}));
   if(req.params.format!=='pdf')fail(404,'Formato desconocido');
   res.type('pdf').set('Content-Disposition',`attachment; filename="${documentFilename(document)}.pdf"`);const pdf=receiptDocument(document.issuer,document,document);pdf.on('error',()=>res.destroy());pdf.pipe(res);pdf.end();
  }));

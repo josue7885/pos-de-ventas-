@@ -1,5 +1,15 @@
 # Correcciones verificadas
 
+## Facturación arriba, cobro con entrega y consulta de existencias
+
+- Retirado el panel ejecutivo de Venta; cliente, comprobante, pagos, descuentos y entrega encima del catálogo.
+- Buscador global por nombre, SKU/código de barras y categoría; existencias, unidades, agotados y servicios por negocio, con estado de sincronización.
+- Al confirmar el cobro: diálogo de ticket de 80 mm o descarga de PDF A4; los bloqueos del navegador no repiten la venta.
+- Correo automático con PDF/JSON si la casilla está marcada y hay destinatario y SMTP. Registro persistente para no repetir el envío al recuperar la misma venta. Un resultado SMTP incierto requiere revisión y reenvío manual.
+- Datos del cliente limpiados tras el cobro; monto recibido introducido por el cajero conservado al abrir la confirmación.
+- Cobro sin PIN ejecutivo; permisos administrativos y configuración del tipo de negocio se mantienen.
+- 45 pruebas de API/DOM: impresión y descarga automáticas, buscador, destinatarios, SMTP local, reintentos concurrentes y reinicio. Impresión física y proveedor externo pendientes de validar en la instalación.
+
 ## Pestañas y comprobantes unificados
 
 - Caja agrupa Venta, Mesas, Órdenes, Cocina y Turno y cierre.

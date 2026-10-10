@@ -310,6 +310,7 @@ async function openDatabase(dbPath,adminPin,adminName,releaseLock) {
     ensureColumn('users', 'token_version', 'INTEGER NOT NULL DEFAULT 0');
     ensureColumn('users', 'active', 'INTEGER NOT NULL DEFAULT 1');
     db.prepare(`CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, expires_at INTEGER NOT NULL)`).run();
+    db.prepare(`CREATE TABLE IF NOT EXISTS sale_email_delivery (sale_id INTEGER PRIMARY KEY, recipient TEXT NOT NULL, status TEXT NOT NULL, message TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL)`).run();
     db.prepare(`CREATE TABLE IF NOT EXISTS sale_requests (request_key TEXT PRIMARY KEY, user_id INTEGER NOT NULL, fingerprint TEXT NOT NULL, sale_id INTEGER NOT NULL)`).run();
     db.prepare(`CREATE TABLE IF NOT EXISTS shifts (id INTEGER PRIMARY KEY AUTOINCREMENT, opened_by INTEGER, closed_by INTEGER, opened_at TEXT, closed_at TEXT, opening_cents INTEGER NOT NULL, observed_cents INTEGER)`).run();
     db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS one_open_shift ON shifts((1)) WHERE closed_at IS NULL`).run();

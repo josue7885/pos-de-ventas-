@@ -16,6 +16,21 @@ El menú y las pestañas se ajustan al rol y a las funciones habilitadas en cada
 - **Mesero y cocina:** funciones operativas autorizadas, sin configuración empresarial.
 - **Contador:** consulta y funciones financieras autorizadas; agrupar la caja no le concede permiso para abrirla o cerrarla.
 
+## Facturación y búsqueda rápida
+
+En **Caja → Venta**, el panel ejecutivo se retiró. Los datos de cliente, tipo de comprobante, método de pago, monto recibido, descuentos y entrega están arriba del catálogo. **Cobrar venta** abre una confirmación breve con cliente y total. No pide PIN ejecutivo; se mantiene el inicio de sesión y el permiso de caja. Configuración y usuarios conservan sus controles de administrador y PIN ejecutivo cuando está configurado.
+
+El buscador **Consultar producto y existencias** está disponible encima de las pestañas en todas las áreas. Busca por nombre, SKU/código de barras o categoría, incluso sin escribir tildes. Muestra precio, existencias y unidad; diferencia los servicios y productos agotados. Consulta solamente el negocio activo, se actualiza con la sincronización y muestra una advertencia cuando esta falla. **Actualizar** consulta nuevamente el servidor. El buscador del catálogo sigue permitiendo agregar un SKU con Enter.
+
+Antes del cobro elige:
+
+- **Imprimir ticket (80 mm):** opción inicial; al confirmar la venta abre el diálogo del navegador. Selecciona la impresora térmica y papel de 80 mm, o Guardar como PDF. El navegador exige confirmar la impresión; no es impresión silenciosa.
+- **Descargar PDF (A4):** descarga el comprobante al confirmar el cobro.
+- **Solo guardar comprobante:** no abre impresión ni descarga; los botones quedan disponibles para después.
+- **Enviar PDF y JSON al correo del cliente:** activado inicialmente, se puede desmarcar para esa venta. Requiere un correo válido y SMTP configurado en el negocio.
+
+Después de una venta confirmada se limpian los datos del cliente para evitar enviar el siguiente comprobante al destinatario anterior. La confirmación conserva los botones del documento emitido. Si el navegador bloquea la ventana o descarga, la venta sigue registrada: usa los botones del comprobante, sin cobrar otra vez.
+
 ## Cambiar el tipo de negocio
 
 1. Selecciona el negocio e inicia sesión con su administrador.
@@ -47,7 +62,7 @@ Los nuevos documentos guardan el perfil público del emisor al emitirse. Cambiar
 3. En **Documentos → Comprobantes**, pulsa **Enviar correo** en una venta o cotización e introduce un único destinatario. También puedes usar el botón de la venta recién confirmada.
 4. El mensaje adjunta el mismo PDF y JSON que puedes descargar. Que SMTP acepte el envío no garantiza que llegue a la bandeja de entrada: revisa también spam y posibles rebotes.
 
-El envío es manual. Si la respuesta se pierde, comprueba primero si llegó el mensaje: reenviarlo puede duplicar el correo, aunque no duplica la venta. El servidor limita los intentos de correo. La configuración SMTP actual del negocio se usa para el envío; los adjuntos conservan el perfil público histórico del documento.
+El cobro envía automáticamente si dejaste marcada la casilla de correo. La intención y el estado se guardan junto a los datos de la venta: recuperar la misma operación, incluso tras reiniciar o desde solicitudes simultáneas, no repite automáticamente el mensaje. Si no hay correo o SMTP, se informa sin anular el cobro. Si SMTP se interrumpe, el resultado puede ser incierto y no se reintenta automáticamente. Comprueba la bandeja del cliente antes de usar **Enviar correo**, que sigue siendo un reenvío manual y puede duplicar un mensaje ya recibido. El servidor limita los intentos de reenvío manual. La configuración SMTP actual del negocio se usa para el envío; los adjuntos conservan el perfil público histórico del documento.
 
 Los comprobantes continúan siendo internos sin autorización fiscal. Las cotizaciones no generan cobro ni reservan existencias.
 
@@ -66,4 +81,4 @@ npm.cmd start
 
 Ejecuta los comandos en orden y detente si alguno falla. Conserva tu `POS_DATA_DIR` habitual y prueba primero con una copia cuando actualices una base anterior. Recarga la página del POS después de reiniciar el servidor.
 
-`npm test` usa bases temporales: comprueba navegación por rol, protección del tipo de negocio, impresión HTML escapada, perfiles históricos, aislamiento entre negocios y coincidencia de descargas y adjuntos contra un receptor SMTP local. No envía correos a personas ni utiliza tus datos reales. La entrega con un proveedor externo, la impresión física y la prueba visual del navegador requieren validación en la instalación final.
+`npm test` usa bases temporales: comprueba correo automático con reintentos, reinicio y desconexión SMTP, buscador de existencias, salida automática de ticket/PDF, navegación por rol, protección del tipo de negocio, impresión HTML escapada, perfiles históricos, aislamiento entre negocios y coincidencia de descargas y adjuntos contra un receptor SMTP local. No envía correos a personas ni utiliza tus datos reales. La entrega con un proveedor externo, la impresión física y la prueba visual del navegador requieren validación en la instalación final.
