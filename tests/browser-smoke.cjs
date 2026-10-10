@@ -12,12 +12,18 @@ const fs=require('fs'),os=require('os'),path=require('path'),{spawn}=require('ch
  const errors=[];const page=await browser.newPage({viewport:{width:1600,height:1000}});page.on('pageerror',e=>errors.push(e.message));page.on('dialog',async d=>{if(d.type()==='prompt')await d.accept('0');else await d.accept();});
  await page.goto(base);await page.locator('#employee-select option').waitFor({state:'attached'});await page.fill('#pin-input','000000');await page.click('#login-btn');await page.locator('#login-error:not(.hidden)').waitFor();assert.equal(await page.locator('#app-shell').isVisible(),false);
  await page.fill('#pin-input','729184');await page.click('#login-btn');await page.locator('#app-shell:not(.hidden)').waitFor();
- assert.deepEqual(await page.locator('#nav-menu button').allTextContents(),['Caja','Documentos','Configuración']);
+ assert.deepEqual(await page.locator('#nav-menu button').allTextContents(),['Inicio','Caja','Documentos','Configuración']);
+ assert.equal(await page.locator('#module-home').isVisible(),true);
+ await page.click('#sidebar-toggle');assert.equal(await page.locator('#app-shell').evaluate(el=>el.classList.contains('sidebar-collapsed')),true);
+ await page.reload();await page.locator('#employee-select option').waitFor({state:'attached'});await page.fill('#pin-input','729184');await page.click('#login-btn');await page.locator('#app-shell:not(.hidden)').waitFor();assert.equal(await page.locator('#sidebar-toggle').getAttribute('aria-expanded'),'false');
+ if(process.env.POS_SCREENSHOT_DIR){fs.mkdirSync(process.env.POS_SCREENSHOT_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.POS_SCREENSHOT_DIR,'inicio-plegado.png'),fullPage:true});}
+ await page.click('#sidebar-toggle');await page.click('[data-home-action=sale]');
  assert.equal(await page.locator('#billing-more').evaluate(el=>el.open),false);
  await page.fill('#search-input','Café');assert.equal(await page.inputValue('#sale-entry-stock'),'5');
- assert.equal(await page.locator('.sales-toolbar [data-sale-target=inventory]').isVisible(),true);
+ assert.equal(await page.locator('#sale-inventory-btn').isVisible(),true);
  if(process.env.POS_SCREENSHOT_DIR){fs.mkdirSync(process.env.POS_SCREENSHOT_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.POS_SCREENSHOT_DIR,'ventas-escritorio.png'),fullPage:true});}
 
+ await page.click('#sale-inventory-btn');await page.fill('#sale-inventory-search','cafe');await page.fill('#stock-qty-1','2');await page.click('#stock-add-1');assert.equal(await page.evaluate(()=>cart[0].qty),2);await page.click('[data-workspace=home]');assert.equal(await page.evaluate(()=>cart[0].qty),2);await page.click('[data-home-action=sale]');await page.click('#clear-cart-btn');
  await page.click('[data-module=cash]');await page.click('#toggle-shift-btn');await page.waitForFunction(()=>state.shift.isOpen);
  await page.click('[data-module=pos]');await page.fill('#search-input','Café');await page.click('#sale-entry-add');await page.click('#process-sale-btn');await page.locator('#billing-modal:not(.hidden)').waitFor();assert.equal(await page.inputValue('#billing-cash-received'),'5.09');
  assert.equal(await page.locator('#cart-list tr.sale-line').count(),1);
@@ -29,6 +35,10 @@ const fs=require('fs'),os=require('os'),path=require('path'),{spawn}=require('ch
  await page.click('#confirm-billing-btn');await page.waitForFunction(()=>pendingSale?.uncertain===true);assert.equal(await page.evaluate(()=>cart.length),1);
  await page.click('#process-sale-btn');await page.click('#confirm-billing-btn');await page.waitForFunction(()=>pendingSale===null && state.sales.length===2);
  assert.equal(await page.evaluate(()=>state.products[0].stock),3);await second.waitForFunction(()=>state.sales.length===2);assert.equal(await second.evaluate(()=>state.products[0].stock),3);
+ await page.click('[data-workspace=home]');assert.equal(await page.locator('#home-sale-count').innerText(),'2');assert.match(await page.locator('#home-top-products').innerText(),/Café/);await page.selectOption('#home-period','30');assert.equal(await page.locator('.home-day').count(),30);
+ if(process.env.POS_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.POS_SCREENSHOT_DIR,'inicio-escritorio.png'),fullPage:true});
+ await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.click('#sidebar-toggle');assert.equal(await page.locator('#nav-menu').isVisible(),false);await page.click('#sidebar-toggle');assert.equal(await page.locator('#nav-menu').isVisible(),true);
+ if(process.env.POS_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.POS_SCREENSHOT_DIR,'inicio-movil.png'),fullPage:true});await page.setViewportSize({width:1600,height:1000});
  // User form references its own input, not the page heading.
  await page.click('[data-workspace=settings]');assert.deepEqual(await page.locator('#module-tabs button').allTextContents(),['General','Negocios','Usuarios']);await page.click('[data-module=users]');await page.click('#new-user-btn');await page.fill('#user-form-name','Prueba UI');await page.fill('#user-pin','654321');await page.selectOption('#user-role-input','cajero');await page.locator('#user-form button[type=submit]').click();await page.waitForFunction(()=>state.employees.some(u=>u.name==='Prueba UI'));
  await page.click('[data-workspace=documents]');await page.locator('#billing-invoices-body [data-document-action=json]').first().waitFor();
@@ -43,7 +53,7 @@ const fs=require('fs'),os=require('os'),path=require('path'),{spawn}=require('ch
  await page.click('#billing-edit-customer-btn');assert.equal(await page.locator('#billing-more').evaluate(el=>el.open),true);
  if(process.env.POS_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.POS_SCREENSHOT_DIR,'ventas-movil.png'),fullPage:true});
  await page.setViewportSize({width:1600,height:1000});await page.locator('#billing-more summary').click();
- if(process.env.POS_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.POS_SCREENSHOT_DIR,'ventas-con-articulos.png'),fullPage:true});
+ await page.click('#sale-inventory-btn');if(process.env.POS_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.POS_SCREENSHOT_DIR,'ventas-con-articulos.png'),fullPage:true});
  assert.deepEqual(errors,[]);console.log('Browser OK: login rejection, login, shared shift, checkout/rounding, lost-response replay, two-device sync, create user; no page errors.');
  }finally{if(browser)await browser.close();await new Promise(resolve=>{server.once('exit',resolve);server.kill('SIGTERM');});fs.rmSync(dir,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -40,3 +40,7 @@ El recorrido Playwright `tests/browser-smoke.cjs` pasó en Chromium sin interfaz
 Antes de actualizar datos reales, detén el servidor, conserva un respaldo verificado y prueba con una copia mediante `POS_DATA_DIR`. La migración conserva cuentas, ventas y existencias. No se importan automáticamente archivos JSON ni ventas guardadas solamente en el navegador de otra versión.
 
 Facturación de venta arriba del catálogo; panel ejecutivo retirado. El cobro permite ticket de 80 mm o PDF A4. El buscador general consulta precio y existencias del negocio activo desde cualquier sección.
+
+## Inicio e inventario para la cuenta
+
+Se agregó Inicio con indicadores y gráficos de ventas por día, últimos 7/30 días y cinco productos más vendidos, limitado a datos autorizados del negocio activo. Las fechas usan la zona horaria del dispositivo indicada en pantalla. El menú se puede minimizar y recuerda la preferencia. Los accesos rápidos respetan permisos y conservan el carrito. El botón Inventario de Ventas abre la consulta con cantidades y Agregar a cuenta; no modifica la administración de inventarios en Documentos.

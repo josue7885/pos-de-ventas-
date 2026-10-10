@@ -6,6 +6,7 @@ Punto de venta web con Node.js, Express y SQLite. Permite administrar varios neg
 
 | Área | Pestañas |
 | --- | --- |
+| Inicio | Resumen, ventas por día, productos más vendidos y accesos rápidos |
 | Caja | Venta, Mesas, Órdenes, Cocina, Turno y cierre |
 | Documentos | Comprobantes, Inventario, Reportes |
 | Configuración | General, Negocios, Usuarios |
@@ -116,6 +117,8 @@ No se implementaron devoluciones fiscales, anulaciones con notas de crédito, co
 
 ## Mejoras de la versión compartida
 
+- **Inicio:** resumen de ventas por día (7/30 días), productos más vendidos y accesos a venta, inventario y registro de clientes según permisos. Menú lateral plegable con preferencia guardada.
+- **Inventario en Ventas:** consulta por nombre/código/categoría y agrega cantidades a la cuenta sin salir de Ventas; valida stock y unidades. La administración sigue en Documentos.
 - **Pantalla de caja:** barra azul de accesos, cabecera compacta, entrada por código/nombre y cantidad, tabla de artículos con existencias e importes, y catálogo desplegable. Respeta funciones activas y permisos.
 - **Facturación rápida:** datos del cliente y pago arriba del catálogo, sin panel ejecutivo; confirmación de cobro con ticket/PDF y correo opcional automático. Buscador de existencias en todas las áreas, limitado al negocio activo.
 - **Documentos y cotizaciones:** búsqueda, filtros, ticket, PDF/JSON, correo manual y conversión de cotizaciones al carrito. La vigencia predeterminada es de 15 días y se configura de 1 a 90 días por negocio. No cobran ni reservan inventario.

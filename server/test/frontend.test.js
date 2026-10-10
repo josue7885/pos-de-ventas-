@@ -14,7 +14,10 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  w.document.getElementById('pin-input').value='729184';await w.loginUser();assert.equal(w.eval('currentEmployee.role'),'admin',alerts.join('\n'));
  const navLabels=win=>Array.from(win.document.querySelectorAll('#nav-menu button'),el=>el.textContent.trim());
  const tabLabels=win=>Array.from(win.document.querySelectorAll('#module-tabs button'),el=>el.textContent.trim());
- assert.deepEqual(navLabels(w),['Caja','Documentos','Configuración']);
+ assert.deepEqual(navLabels(w),['Inicio','Caja','Documentos','Configuración']);
+ assert.equal(w.eval('activeModule'),'home');assert.equal(w.document.querySelectorAll('#home-daily-chart .home-day').length,7);
+ w.document.getElementById('sidebar-toggle').click();assert.equal(w.document.getElementById('sidebar-toggle').getAttribute('aria-expanded'),'false');assert.equal(w.localStorage.getItem('pos_sidebar_collapsed'),'true');w.document.getElementById('sidebar-toggle').click();
+ w.document.querySelector('[data-home-action=sale]').click();
  assert.deepEqual(tabLabels(w),['Venta','Mesas','Órdenes','Cocina','Turno y cierre']);
  w.selectWorkspace('settings');assert.deepEqual(tabLabels(w),['General','Negocios','Usuarios']);
  assert.equal(w.document.getElementById('setting-business_type').disabled,false);
@@ -35,9 +38,15 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  const stockSearch=w.document.getElementById('system-product-search');stockSearch.value='cafe';stockSearch.dispatchEvent(new w.Event('input'));
  assert.match(w.document.getElementById('system-product-results').textContent,/Café/);assert.match(w.document.getElementById('system-product-results').textContent,/5 unidad/);
  w.selectWorkspace('settings');assert.equal(w.document.getElementById('system-product-results').classList.contains('hidden'),false);w.selectWorkspace('cash');
+ w.document.getElementById('sale-inventory-btn').click();assert.equal(w.eval('activeModule'),'pos');assert.equal(w.document.getElementById('sale-catalog').open,true);
+ w.document.getElementById('sale-inventory-search').value='cafe';w.renderSaleInventory();assert.equal(w.document.querySelectorAll('#product-grid [data-stock-add]').length,1);
+ w.document.getElementById('stock-qty-1').value='5';w.document.getElementById('stock-add-1').click();assert.equal(w.eval('cart[0].qty'),5);assert.equal(w.document.getElementById('stock-add-1').disabled,true);
+ w.selectWorkspace('home');assert.equal(w.eval('cart[0].qty'),5);w.document.querySelector('[data-home-action=sale]').click();w.clearCart();
+ w.document.getElementById('stock-qty-1').value='6';w.addInventoryToSale(1);assert.equal(w.eval('cart.length'),0);w.document.getElementById('stock-qty-1').value='1';
  await w.openShift();assert.equal(w.eval('state.shift.isOpen'),true);
  const autoPrintDom=new JSDOM('<!DOCTYPE html><html></html>');let autoPrinted=0;autoPrintDom.window.print=()=>autoPrinted++;autoPrintDom.window.focus=()=>{};w.open=()=>autoPrintDom.window;
  w.addToCart(1);w.openBillingModal('payment');assert.equal(w.document.getElementById('billing-cash-received').value,'5.09');await w.processSale();assert.equal(w.eval('state.sales.length'),1);assert.equal(w.eval('state.products[0].stock'),4);
+ w.selectWorkspace('home');assert.equal(w.document.getElementById('home-sale-count').textContent,'1');assert.equal(w.document.getElementById('home-period-total').textContent,w.eval('currency(5.09)'));assert.match(w.document.getElementById('home-top-products').textContent,/Café/);w.setActiveModule('pos');
  assert.equal(autoPrinted,1);assert.match(autoPrintDom.window.document.querySelector('style').textContent,/80mm/);autoPrintDom.window.close();w.open=()=>null;
  assert.match(w.document.getElementById('system-product-results').textContent,/4 unidad/);
  assert.match(w.document.getElementById('sale-document-confirmation').textContent,/cliente no tiene correo/);
@@ -59,8 +68,13 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  search.value='UI-001';w.document.getElementById('sale-entry-quantity').value='2';w.addSaleEntry();assert.equal(w.eval('cart[0].qty'),1);
  w.clearCart();search.value='UI-001';w.document.getElementById('sale-entry-quantity').value='.5';w.addSaleEntry();assert.equal(w.eval('cart[0].qty'),.5);assert.equal(w.document.querySelector('#cart-list .sale-line-amount').textContent,w.eval('currency(1.25)'));
 
+ w.clearCart();w.openSaleInventory();w.document.getElementById('sale-inventory-search').value='UI-001';w.renderSaleInventory();w.document.getElementById('stock-qty-'+added.id).value='.5';w.addInventoryToSale(added.id);assert.equal(w.eval('cart[0].qty'),.5);
+ // Daily buckets use local calendar dates, integer cents and historical product/unit identities.
+ const summary=w.homeSummary([{createdAt:new w.Date(2026,9,9,23,59).toISOString(),total:1.13,items:[{id:1,name:'Granel',unit:'kg',qty:.5}]},{createdAt:new w.Date(2026,9,10,0,1).toISOString(),total:2.26,items:[{id:1,name:'Granel',unit:'kg',qty:.25}]},{createdAt:new w.Date(2026,8,1).toISOString(),total:100,items:[]}],7,new w.Date(2026,9,10,12));
+ assert.equal(summary.totalCents,339);assert.equal(summary.todayCents,226);assert.equal(summary.count,2);assert.equal(summary.top[0].qty,750);assert.equal(summary.daily.length,7);
+ w.selectWorkspace('home');w.document.getElementById('home-period').value='30';w.document.getElementById('home-period').dispatchEvent(new w.Event('change'));assert.equal(w.document.querySelectorAll('#home-daily-chart .home-day').length,30);w.setActiveModule('pos');
  w.document.getElementById('billing-discount-percent').value='20';w.document.getElementById('billing-discount-reason').value='Prueba DOM';w.renderCart();assert.equal(w.getCartTotals().total,1.13);
- w.document.getElementById('billing-new-customer-btn').click();
+ w.selectWorkspace('home');w.document.querySelector('[data-home-action=customer]').click();assert.equal(w.eval('activeModule'),'pos');assert.equal(w.eval('cart[0].qty'),.5);
  assert.notEqual(w.getComputedStyle(w.document.getElementById('save-customer-btn')).display,'none');
  assert.equal(w.document.getElementById('billing-modal').classList.contains('hidden'),true);
  assert.equal(w.document.activeElement.id,'billing-customer-name');
@@ -102,7 +116,7 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  const childId=w.eval("businessDirectory.find(b=>b.name==='Servicios UI').id"),rootJournal=w.pendingSaleKey();
  await w.switchBusiness(childId);assert.equal(w.document.getElementById('system-product-search').value,'');assert.equal(w.document.getElementById('system-product-results').textContent,'');assert.equal(w.eval('currentEmployee'),null);assert.equal(w.getBusinessId(),childId);
  w.document.getElementById('pin-input').value='987654';await w.loginUser();
- assert.equal(w.eval('currentEmployee.name'),'Dueño Servicios',alerts.join('\n'));assert.equal(w.eval('state.products.length'),0);assert.equal(w.eval('state.sales.length'),0);assert.notEqual(w.pendingSaleKey(),rootJournal);
+ assert.equal(w.eval('currentEmployee.name'),'Dueño Servicios',alerts.join('\n'));assert.equal(w.eval('state.products.length'),0);assert.equal(w.eval('state.sales.length'),0);assert.equal(w.document.getElementById('home-sale-count').textContent,'0');assert.match(w.document.getElementById('home-top-products').textContent,/Todavía no hay ventas/);assert.notEqual(w.pendingSaleKey(),rootJournal);
  assert.equal(w.document.querySelector('[data-module="tables"]'),null);assert.equal(w.document.querySelector('[data-module="businesses"]'),null);
  assert.ok(w.document.getElementById('send-kitchen-btn').classList.contains('hidden'));
  w.openProductForm();assert.equal(w.document.getElementById('product-type').value,'servicio');w.closeProductForm();
@@ -111,17 +125,19 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  assert.equal(w.eval('state.companySettings.tax_label'),'Impuesto UI',alerts.join('\n'));assert.equal(w.eval('state.companySettings.iva_rate'),0);
  await v.syncFromServer();assert.equal(v.getBusinessId(),'principal');assert.equal(v.eval('state.sales.length'),3);assert.equal(v.eval('state.companySettings.currency_code'),'USD');
  await w.switchBusiness('principal');w.document.getElementById('pin-input').value='729184';await w.loginUser();assert.equal(w.eval('state.sales.length'),3);
- // Real sessions keep their existing role permissions within the three workspaces.
+ // Home and its shortcuts respect real role permissions.
  const cashier=w.eval("state.employees.find(u=>u.name==='Prueba UI')");
  await v.logoutUser();v.document.getElementById('employee-select').value=String(cashier.id);v.document.getElementById('pin-input').value='654321';await v.loginUser();
- assert.equal(v.eval('currentEmployee.role'),'cajero');assert.equal(v.document.querySelector('[data-sale-target=inventory]').classList.contains('hidden'),true);assert.equal(v.document.querySelector('[data-sale-target=reports]').classList.contains('hidden'),true);assert.deepEqual(navLabels(v),['Caja','Documentos']);
+ assert.equal(v.eval('currentEmployee.role'),'cajero');assert.equal(v.document.getElementById('sale-inventory-btn').classList.contains('hidden'),false);assert.equal(v.document.querySelector('[data-sale-target=reports]').classList.contains('hidden'),true);assert.deepEqual(navLabels(v),['Inicio','Caja','Documentos']);
+ v.document.querySelector('[data-home-action=inventory]').click();assert.equal(v.eval('activeModule'),'pos');assert.equal(v.document.getElementById('sale-catalog').open,true);assert.equal(v.document.querySelector('[data-module=inventory]'),null);
  v.setActiveModule('settings');assert.notEqual(v.eval('activeModule'),'settings');assert.equal(v.document.getElementById('setting-business_type').disabled,true);
  await assert.rejects(v.apiRequest('/settings',{method:'PUT',body:JSON.stringify({business_type:'services'})}),error=>error.status===403);
- for(const role of ['gerente','cocina']){
+ for(const role of ['gerente','mesero','cocina']){
   const {user}=await w.apiRequest('/users',{method:'POST',body:JSON.stringify({name:'Rol '+role,role,pin:'876543'})});
   await v.logoutUser();v.document.getElementById('employee-select').value=String(user.id);v.document.getElementById('pin-input').value='876543';await v.loginUser();assert.equal(v.eval('currentEmployee.role'),role);
   if(role==='gerente'){v.selectWorkspace('settings');assert.deepEqual(tabLabels(v),['Usuarios']);assert.equal(v.eval('activeModule'),'users');}
-  else{assert.deepEqual(navLabels(v),['Caja']);assert.deepEqual(tabLabels(v),['Cocina']);v.setActiveModule('inventory');assert.equal(v.eval('activeModule'),'kitchen');}
+  else if(role==='cocina'){assert.deepEqual(navLabels(v),['Inicio','Caja']);assert.deepEqual(tabLabels(v),['Cocina']);v.setActiveModule('inventory');assert.equal(v.eval('activeModule'),'kitchen');}
+  if(role!=='gerente'){v.selectWorkspace('home');assert.equal(v.document.getElementById('home-financial').classList.contains('hidden'),true);assert.equal(v.document.getElementById('home-daily-chart').textContent,'');assert.equal(v.eval('state.sales.length'),0);}
   assert.equal(v.document.getElementById('setting-business_type').disabled,true);assert.equal(v.document.getElementById('module-settings').getAttribute('aria-hidden'),'true');
  }
  // A delayed response body cannot populate a business selected after that request began.

@@ -4,6 +4,7 @@
 
 | Área principal | Pestañas |
 | --- | --- |
+| Inicio | Resumen, ventas por día, productos más vendidos y accesos rápidos |
 | Caja | Venta, Mesas, Órdenes, Cocina, Turno y cierre |
 | Documentos | Comprobantes, Inventario, Reportes |
 | Configuración | General, Negocios, Usuarios |
@@ -15,6 +16,16 @@ El menú y las pestañas se ajustan al rol y a las funciones habilitadas en cada
 - **Cajero:** caja y comprobantes, según sus permisos anteriores.
 - **Mesero y cocina:** funciones operativas autorizadas, sin configuración empresarial.
 - **Contador:** consulta y funciones financieras autorizadas; agrupar la caja no le concede permiso para abrirla o cerrarla.
+
+## Inicio y menú plegable
+
+Pulsa **Minimizar menú (☰)** para dejar solo los iconos en escritorio. El mismo botón lo expande; la preferencia se conserva en ese navegador. En móvil oculta o muestra la navegación superior.
+
+**Inicio** muestra ventas de hoy, total, cantidad de ventas y promedio de los últimos **7 o 30 días**, junto a barras por fecha y los 5 productos más vendidos por cantidad y unidad. Incluye días sin ventas y utiliza la fecha local del dispositivo (zona horaria indicada en pantalla); cotizaciones y órdenes pendientes no cuentan como ventas. El gráfico permite desplazarse horizontalmente y consultar una tabla de importes. Los datos se sincronizan por negocio.
+
+Los accesos rápidos abren **Nueva venta**, **Inventario** y **Registrar cliente**, conservando el carrito. Administrador y gerente acceden al inventario administrativo. Cajero y mesero abren la consulta de inventario dentro de Ventas, sin permisos de edición. Cocina no recibe accesos de venta. El resumen financiero solo se muestra a administrador, gerente, cajero y contador; mesero y cocina conservan las restricciones del servidor.
+
+En **Caja → Venta → Inventario**, escribe una cantidad y pulsa **Agregar a cuenta**. Se valida la unidad y que las existencias cubran lo que ya está en el carrito más lo agregado. Agotados y operaciones pendientes bloquean la acción. Los servicios no consumen existencias. Solo el cobro confirmado descuenta inventario; **Documentos → Inventario** conserva la administración habitual, sin botones para añadir a una venta.
 
 ## Facturación y búsqueda rápida
 
@@ -28,7 +39,7 @@ La pantalla de venta usa una tabla amplia, inspirada en la referencia de caja:
 2. La cabecera muestra documento, cliente, pago, recibido y correo. **Datos** despliega búsqueda de clientes registrados, identificación, dirección y demás datos. También se despliega al seleccionar Crédito fiscal interno.
 3. En **Código o descripción del producto**, escribe o escanea un código o selecciona una sugerencia. Revisa unidad, existencias y precio; indica cantidad y pulsa **Agregar** o Enter. Las cantidades fraccionarias se admiten solo para unidades que las permiten. Si ya está en la tabla, la cantidad se suma sin exceder existencias.
 4. La tabla muestra código, descripción, cantidad, unidad, precio, importe antes del descuento general, tipo y existencias. Cambia cantidades, elimina partidas o ajusta precios con permiso de administrador/gerente. El descuento general, impuesto y total aparecen arriba del detalle.
-5. Debajo están las opciones de impresión/correo y los botones Cobrar, Guardar cotización y Enviar a cocina. **Explorar catálogo de productos** conserva la vista de tarjetas y filtro por categoría.
+5. Debajo están las opciones de impresión/correo y los botones Cobrar, Guardar cotización y Enviar a cocina. **Inventario para agregar a la cuenta** ofrece una tabla con búsqueda, categoría, precio, existencias, cantidad en cuenta y cantidad a agregar. También se abre con el botón Inventario de la barra de Ventas.
 
 En teléfono, los campos se acomodan y la tabla se desplaza horizontalmente. La cabecera no inventa un número de factura: se asigna al confirmar el cobro en el servidor. La pantalla no añade bodegas múltiples ni hojas de despacho, que no son funciones activas del sistema.
 

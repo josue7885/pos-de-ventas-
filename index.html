@@ -42,7 +42,8 @@
     </div>
 
     <div id="app-shell" class="app-shell hidden">
-      <aside class="sidebar">
+      <aside class="sidebar" id="app-sidebar">
+        <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-controls="nav-menu" aria-expanded="true" aria-label="Minimizar menú" title="Minimizar menú"><span aria-hidden="true">☰</span><span class="sidebar-toggle-label">Minimizar menú</span></button>
         <div class="brand-box">
           <img id="sidebar-company-logo" class="sidebar-logo hidden" alt="Logo de la empresa" />
           <div class="brand-badge" id="sidebar-brand-badge">POS</div>
@@ -55,7 +56,7 @@
         <nav id="nav-menu" class="nav-menu" aria-label="Áreas de trabajo"></nav>
 
         <div class="sidebar-footer">
-          <button id="logout-btn" class="ghost-btn">Cerrar sesión</button>
+          <button id="logout-btn" class="ghost-btn" aria-label="Cerrar sesión" title="Cerrar sesión"><span aria-hidden="true">↪</span><span class="nav-label">Cerrar sesión</span></button>
         </div>
       </aside>
 
@@ -85,6 +86,15 @@
           <div id="module-tabs" class="module-tabs" role="tablist" aria-label="Caja"></div>
         </section>
 
+        <section id="module-home" class="module hidden">
+          <div class="panel home-heading"><div><p class="eyebrow">Resumen del negocio</p><h3 id="home-business-name">Inicio</h3><p id="home-period-note"></p></div><div><label for="home-period">Período</label><select id="home-period"><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option></select></div></div>
+          <section class="home-quick-links panel" aria-label="Accesos rápidos"><h3>Accesos rápidos</h3><div><button type="button" class="primary-btn" data-home-action="sale">Nueva venta</button><button type="button" class="ghost-btn" data-home-action="inventory">Inventario</button><button type="button" class="ghost-btn" data-home-action="customer">Registrar cliente</button></div><p id="home-no-shortcuts" class="hidden">Usa el menú para acceder a tus funciones autorizadas.</p></section>
+          <p id="home-restricted" class="panel hidden">Tu rol tiene acceso a las funciones operativas. El resumen financiero está reservado a los roles autorizados.</p>
+          <div id="home-financial">
+            <div class="home-metrics"><article class="panel"><span>Ventas de hoy</span><strong id="home-today-total"></strong></article><article class="panel"><span>Total del período</span><strong id="home-period-total"></strong></article><article class="panel"><span>Ventas registradas</span><strong id="home-sale-count"></strong></article><article class="panel"><span>Promedio por venta</span><strong id="home-average"></strong></article></div>
+            <div class="home-charts"><section class="panel"><h3>Ventas por día</h3><p>Total cobrado, con impuestos y descuentos.</p><div id="home-daily-chart" class="home-daily-chart" role="list" tabindex="0" aria-label="Ventas por día; desplaza horizontalmente para ver otras fechas"></div><details><summary>Ver importes por fecha</summary><div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Ventas</th><th>Total</th></tr></thead><tbody id="home-daily-table"></tbody></table></div></details></section><section class="panel"><h3>Productos más vendidos</h3><p>Los 5 primeros por cantidad, indicando su unidad de venta.</p><ol id="home-top-products" class="home-top-products"></ol></section></div>
+          </div>
+        </section>
         <section id="module-businesses" class="module hidden">
           <div class="panel"><h3>Administrar negocios</h3><p>Cada negocio conserva sus propios usuarios, caja, productos, ventas y configuración. Para ingresar se requiere una cuenta de ese negocio.</p>
             <div class="table-wrap"><table><thead><tr><th>Negocio</th><th>Acceso</th><th>Acciones</th></tr></thead><tbody id="businesses-list"></tbody></table></div>
@@ -108,7 +118,7 @@
             <button type="button" id="billing-new-customer-btn">Agregar cliente</button>
             <button type="button" data-sale-target="documents">Ver ventas</button>
             <button type="button" data-sale-target="documents" data-sale-section="documents-quotes-content" id="sale-quotes-shortcut">Ver cotizaciones</button>
-            <button type="button" data-sale-target="inventory">Inventario</button>
+            <button type="button" id="sale-inventory-btn" aria-controls="sale-catalog" aria-expanded="false">Inventario</button>
             <button type="button" data-sale-target="cash">Turno y cierre</button>
           </div>
           <div id="sale-document-confirmation" class="panel hidden" aria-live="polite"></div>
@@ -164,7 +174,7 @@
             <div class="receipt-delivery-options"><label for="sale-receipt-output">Al cobrar</label><select id="sale-receipt-output"><option value="ticket">Imprimir ticket (80 mm)</option><option value="pdf">Descargar PDF (A4)</option><option value="none">Solo guardar comprobante</option></select><label class="checkbox-label"><input id="sale-email-receipt" type="checkbox" checked /> Enviar PDF y JSON por correo</label><small>Correo automático con destinatario y SMTP configurado.</small></div>
             <div class="action-row"><button id="save-quote-btn" class="ghost-btn" type="button">Guardar cotización</button><button id="send-kitchen-btn" class="ghost-btn" type="button">Enviar a cocina</button><button id="process-sale-btn" class="primary-btn large" type="button">Cobrar venta</button></div>
           </section>
-          <details id="sale-catalog" class="panel sale-catalog"><summary>Explorar catálogo de productos</summary><div class="catalog-tools"><label for="category-filter">Categoría</label><select id="category-filter" class="mini-select"><option value="all">Todas</option></select></div><div id="product-grid" class="product-grid"></div></details>
+          <details id="sale-catalog" class="panel sale-catalog"><summary>Inventario para agregar a la cuenta</summary><p>Consulta existencias y elige la cantidad. El inventario se descuenta al confirmar la venta.</p><div class="catalog-tools"><label for="sale-inventory-search">Buscar producto</label><input id="sale-inventory-search" type="search" placeholder="Nombre, código o categoría" /><label for="category-filter">Categoría</label><select id="category-filter" class="mini-select"><option value="all">Todas</option></select></div><p id="sale-inventory-status" role="status"></p><div class="table-wrap" tabindex="0" aria-label="Inventario para venta"><table class="sale-inventory-table"><thead><tr><th>Código</th><th>Producto</th><th>Precio</th><th>Existencias</th><th>En cuenta</th><th>Cantidad</th><th>Acción</th></tr></thead><tbody id="product-grid"></tbody></table></div></details>
         </section>
 
         <section id="module-tables" class="module hidden">

@@ -183,7 +183,7 @@ async function syncFromServer() {
   if (seq !== syncSequence || !currentEmployee || currentEmployee.id !== userId) return;
   stockLastUpdated=Date.now();stockSyncError=false;
   const stamp=JSON.stringify([data.products,data.sales,data.shift,data.orders,data.user,data.rooms,data.tables,data.categories,data.settings]);
-  if (stamp===lastSnapshot) { renderSaleWorkspace();renderStockSearch();if(activeModule==='documents')refreshDocuments(); return; }
+  if (stamp===lastSnapshot) { renderHome();renderSaleWorkspace();renderStockSearch();if(activeModule==='documents')refreshDocuments(); return; }
   lastSnapshot=stamp;
   currentEmployee=data.user;
   if(data.settings){state.companySettings=data.settings;applyCompanySettings(data.settings);applyBusinessConfiguration();}
@@ -196,7 +196,7 @@ async function syncFromServer() {
   const category=document.getElementById('category-filter')?.value;
   renderCategoryFilter();
   if(category && document.getElementById('category-filter')) document.getElementById('category-filter').value=category;
-  renderProducts();renderSaleWorkspace();renderStockSearch();renderInventory();renderCashPanel();renderReports();
+  renderProducts();renderSaleWorkspace();renderStockSearch();renderInventory();renderCashPanel();renderReports();renderHome();
   for(const field of draftFields){const el=document.getElementById(field.id);if(el){el.value=field.value;if(el.type==='checkbox')el.checked=field.checked;}}
   if(focused) document.getElementById(focused)?.focus();
   renderOrders();renderKitchenOrders();renderTables();updateHeader();renderNav();
@@ -208,7 +208,7 @@ function initOrderEventStream() {
     if(typeof document==='undefined'||!currentEmployee)return;
     const badge=document.getElementById('shift-status');
     if (badge) badge.textContent='Sin sincronización';
-    stockSyncError=true;renderStockSearch();
+    stockSyncError=true;renderStockSearch();renderHome();
     if (error.status===401 || error.status===404) expireSession();
   }), 3000);
 }
@@ -436,7 +436,7 @@ function showLogin() {
 
 function showApp() {
   document.getElementById('login-screen').classList.add('hidden');
-  document.getElementById('app-shell').classList.remove('hidden');
+  document.getElementById('app-shell').classList.remove('hidden');renderHome();
 }
 
 function updateHeader() {
@@ -694,6 +694,7 @@ function openCustomerDisplay() {
 }
 
 const navigationGroups = [
+  {id:'home',label:'Inicio',modules:[['home','Resumen']]},
   {id:'cash',label:'Caja',modules:[['pos','Venta'],['tables','Mesas'],['orders','Órdenes'],['kitchen','Cocina'],['cash','Turno y cierre']]},
   {id:'documents',label:'Documentos',modules:[['documents','Comprobantes'],['inventory','Inventario'],['reports','Reportes']]},
   {id:'settings',label:'Configuración',modules:[['settings','General'],['businesses','Negocios'],['users','Usuarios']]}
@@ -708,7 +709,7 @@ const roleModules = {
 };
 let rememberedModule = {};
 function availableModules(){
-  return (roleModules[currentEmployee?.role] || []).filter(moduleEnabled);
+  return (currentEmployee ? ['home',...(roleModules[currentEmployee.role] || [])] : []).filter(moduleEnabled);
 }
 function selectWorkspace(id){
   const group=navigationGroups.find(g=>g.id===id),allowed=availableModules();
@@ -726,7 +727,7 @@ function renderNav() {
   const focusedModule=focused?.closest('#module-tabs')?focused.dataset.module:null;
   const focusedGroup=focused?.closest('#nav-menu')?focused.dataset.workspace:null;
   const nav=document.getElementById('nav-menu');
-  nav.innerHTML=groups.map(g=>`<button type="button" class="nav-btn ${g===activeGroup?'active':''}" data-workspace="${g.id}" ${g===activeGroup?'aria-current="page"':''}>${g.label}</button>`).join('');
+  nav.innerHTML=groups.map(g=>`<button type="button" class="nav-btn ${g===activeGroup?'active':''}" data-workspace="${g.id}" title="${g.label}" aria-label="${g.label}" ${g===activeGroup?'aria-current="page"':''}>${navigationIcon(g.id)}<span class="nav-label">${g.label}</span></button>`).join('');
   nav.querySelectorAll('[data-workspace]').forEach(b=>b.addEventListener('click',()=>selectWorkspace(b.dataset.workspace)));
   document.getElementById('workspace-title').textContent=activeGroup?.label || 'Sin módulos disponibles';
   const tabs=document.getElementById('module-tabs');
@@ -782,6 +783,7 @@ function setActiveModule(moduleId) {
   renderSaleWorkspace();
 
   renderNav();
+  if (moduleId === 'home') renderHome();
   if (moduleId === 'cash') renderCashPanel();
   if (moduleId === 'reports') renderReports();
   if (moduleId === 'businesses') refreshBusinesses();
@@ -811,7 +813,7 @@ async function loginUser() {
     await fetchUsersFromServer();
     restorePendingSale();refreshPendingOperations();
     errorText.classList.add('hidden');document.getElementById('pin-input').value='';
-    setActiveModule(currentEmployee.role==='cocina'?'kitchen':currentEmployee.role==='mesero'?'tables':currentEmployee.role==='contador'?'reports':'pos');
+    setActiveModule(currentEmployee.role==='cocina'?'kitchen':currentEmployee.role==='mesero'?'tables':'home');
     renderCart();showApp();initOrderEventStream();
   } catch(error) {
     currentEmployee=null;sessionStorage.removeItem('pos_token');
@@ -836,36 +838,7 @@ function renderCategoryFilter() {
   `).join('');
 }
 
-function renderProducts() {
-  const searchTerm = document.getElementById('search-input').value.trim().toLowerCase();
-  const selectedCategory = document.getElementById('category-filter').value;
-
-  const filteredProducts = state.products.filter((product) => {
-    const matchesText = [product.name,product.code,product.category].some(value=>String(value||'').toLowerCase().includes(searchTerm));
-    const matchesCategory = selectedCategory === 'all' || product.category === selectedCategory;
-    return matchesText && matchesCategory;
-  });
-
-  const grid = document.getElementById('product-grid');
-  if (filteredProducts.length === 0) {
-    grid.innerHTML = '<div class="empty-state">No hay productos disponibles.</div>';
-    return;
-  }
-
-  grid.innerHTML = filteredProducts.map((product) => `
-    <article class="product-card" data-product-id="${product.id}">
-      <div class="product-tag">${escapeHtml(product.category)}</div>
-      <h4>${escapeHtml(product.name)}</h4>
-      <p class="product-price">${currency(product.price)}</p>
-      <small>${tracksStock(product)?'Existencias: '+product.stock+' '+escapeHtml(product.unit||'unidad'):'Servicio sin control de existencias'}</small>
-      <button type="button" class="small primary-btn add-item-btn" data-product-id="${product.id}">Agregar</button>
-    </article>
-  `).join('');
-
-  document.querySelectorAll('.add-item-btn').forEach((button) => {
-    button.addEventListener('click', () => addToCart(Number(button.dataset.productId)));
-  });
-}
+function renderProducts() { renderSaleInventory(); }
 
 function addToCart(productId) {
   if (saleInFlight || pendingSale) return alert('Primero confirma la venta pendiente.');
@@ -904,6 +877,7 @@ function getCartTotals() {
 }
 
 function renderCart() {
+  document.getElementById('sale-inventory-status').textContent='';
   const cartList = document.getElementById('cart-list');
 
   if (cart.length === 0) {
@@ -943,7 +917,7 @@ function renderCart() {
   document.getElementById('discount-value').textContent = totals.discount.toFixed(2);
   document.getElementById('tax-value').textContent = totals.tax.toFixed(2);
   document.getElementById('total-value').textContent = totals.total.toFixed(2);
-  updateMiniTicketTotals();renderSaleEntry();
+  updateMiniTicketTotals();renderSaleEntry();renderSaleInventory();
 
   const cashReceived = document.getElementById('billing-cash-received') || document.getElementById('cash-received');
   if (cashReceived && (!cashReceived.value || Number(cashReceived.value) < totals.total)) {

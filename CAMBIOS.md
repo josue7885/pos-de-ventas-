@@ -1,5 +1,12 @@
 # Correcciones verificadas
 
+## Inicio, menú plegable e inventario dentro de Ventas
+
+- Inicio con ventas diarias de 7/30 días, indicadores, cinco productos más vendidos por cantidad/unidad y accesos rápidos sujetos al rol. Datos del negocio activo y fechas locales explícitas.
+- Menú minimizable con iconos accesibles, preferencia persistente y adaptación móvil.
+- Inventario de Ventas con búsqueda, cantidades, existencias y acción Agregar a cuenta, sin conceder permisos administrativos. Conserva el carrito al navegar.
+- Ampliadas las pruebas DOM/HTTP y Chromium para Inicio, totales, fechas, permisos, aislamiento de negocios, fracciones, stock, navegación y persistencia del menú.
+
 ## Pantalla de venta basada en la referencia de caja
 
 - Barra azul con accesos a funciones existentes, filtrados por permisos y módulos del negocio.
