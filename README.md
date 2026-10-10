@@ -76,7 +76,7 @@ npm test
 
 Las pruebas levantan servidores y bases temporales, incluyendo la interfaz en un DOM con HTTP real: acceso, roles, secretos, venta, reintentos simultáneos, falta de existencias, cierre de caja, cambios de usuarios, reinicio, persistencia y reversión ante errores de disco. También verifican migración del principal, separación entre negocios, pestañas agrupadas por rol, restricción de cambios del tipo de negocio, conservación del emisor histórico, impresión HTML sin ejecutar contenido del cliente, igualdad de PDF/JSON descargados y adjuntos SMTP, y respaldo/restauración de varias bases.
 
-Para el recorrido de navegador (opcional, requiere Playwright y Chromium):
+El recorrido de navegador pasó en Chromium con tamaños de escritorio y móvil. Para ejecutarlo (opcional, requiere Playwright y Chromium):
 
 ```sh
 npm install --no-save --package-lock=false playwright
@@ -116,6 +116,7 @@ No se implementaron devoluciones fiscales, anulaciones con notas de crédito, co
 
 ## Mejoras de la versión compartida
 
+- **Pantalla de caja:** barra azul de accesos, cabecera compacta, entrada por código/nombre y cantidad, tabla de artículos con existencias e importes, y catálogo desplegable. Respeta funciones activas y permisos.
 - **Facturación rápida:** datos del cliente y pago arriba del catálogo, sin panel ejecutivo; confirmación de cobro con ticket/PDF y correo opcional automático. Buscador de existencias en todas las áreas, limitado al negocio activo.
 - **Documentos y cotizaciones:** búsqueda, filtros, ticket, PDF/JSON, correo manual y conversión de cotizaciones al carrito. La vigencia predeterminada es de 15 días y se configura de 1 a 90 días por negocio. No cobran ni reservan inventario.
 - **Clientes:** directorio con búsqueda y edición, con datos completos guardados en el servidor.

@@ -35,7 +35,7 @@ Se revisaron los 16 archivos compartidos y se adaptaron sus mejoras al servidor 
 
 `npm test` ejecuta 45 pruebas, con bases temporales y HTTP real. Incluye pestañas y permisos con sesiones reales, perfil histórico del emisor, igualdad de descargas y adjuntos contra un SMTP local, la interfaz en JSDOM, precios y descuentos por rol, cantidades fraccionarias, cotizaciones sin efecto contable, conversión única, recepción con costo ponderado e IVA, respuestas perdidas, filtros, desactivación de cuentas, reinicios, respaldo/restauración y reversión de transacciones.
 
-La instalación de Chromium en el entorno de revisión falló al descargar su archivo. El recorrido Playwright queda disponible en `tests/browser-smoke.cjs`, pero esta integración no se certifica como probada en un navegador gráfico o en Windows. Tampoco se validaron impresoras físicas, entrega real SMTP ni binarios de instalación.
+El recorrido Playwright `tests/browser-smoke.cjs` pasó en Chromium sin interfaz con vistas de escritorio (1600 × 1000) y móvil (390 × 844): acceso, entrada de productos, cobro, recuperación de respuesta perdida, dos ventanas sincronizadas, usuarios, descarga JSON y ventana de impresión. Se revisaron capturas reales y la ausencia de desbordamiento horizontal de la página en móvil. No se probaron Windows, impresoras físicas, entrega con proveedor SMTP ni instaladores.
 
 Antes de actualizar datos reales, detén el servidor, conserva un respaldo verificado y prueba con una copia mediante `POS_DATA_DIR`. La migración conserva cuentas, ventas y existencias. No se importan automáticamente archivos JSON ni ventas guardadas solamente en el navegador de otra versión.
 

@@ -1,5 +1,14 @@
 # Correcciones verificadas
 
+## Pantalla de venta basada en la referencia de caja
+
+- Barra azul con accesos a funciones existentes, filtrados por permisos y módulos del negocio.
+- Cabecera compacta para comprobante, cliente y pago; datos ampliados del cliente desplegables.
+- Entrada por código/nombre y cantidad con consulta inmediata de unidad, precio y existencias.
+- Detalle tabular con código, descripción, cantidad editable, unidad, precio, importe, tipo, existencias y eliminación. Descuento general y total destacado.
+- Conservados catálogo, cotizaciones, cocina, impresión/PDF, correo, sincronización y permisos administrativos.
+- Verificación en Chromium real sin interfaz: escritorio y móvil, cobro y recuperación, dos clientes, JSON y ventana de impresión. Capturas revisadas; no se certifican impresoras físicas ni Windows.
+
 ## Facturación arriba, cobro con entrega y consulta de existencias
 
 - Retirado el panel ejecutivo de Venta; cliente, comprobante, pagos, descuentos y entrega encima del catálogo.

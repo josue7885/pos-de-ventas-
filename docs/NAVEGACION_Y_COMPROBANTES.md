@@ -20,7 +20,17 @@ El menú y las pestañas se ajustan al rol y a las funciones habilitadas en cada
 
 En **Caja → Venta**, el panel ejecutivo se retiró. Los datos de cliente, tipo de comprobante, método de pago, monto recibido, descuentos y entrega están arriba del catálogo. **Cobrar venta** abre una confirmación breve con cliente y total. No pide PIN ejecutivo; se mantiene el inicio de sesión y el permiso de caja. Configuración y usuarios conservan sus controles de administrador y PIN ejecutivo cuando está configurado.
 
-El buscador **Consultar producto y existencias** está disponible encima de las pestañas en todas las áreas. Busca por nombre, SKU/código de barras o categoría, incluso sin escribir tildes. Muestra precio, existencias y unidad; diferencia los servicios y productos agotados. Consulta solamente el negocio activo, se actualiza con la sincronización y muestra una advertencia cuando esta falla. **Actualizar** consulta nuevamente el servidor. El buscador del catálogo sigue permitiendo agregar un SKU con Enter.
+El buscador **Consultar producto y existencias** se despliega al pulsar su título encima de las pestañas en todas las áreas. Busca por nombre, SKU/código de barras o categoría, incluso sin escribir tildes. Muestra precio, existencias y unidad; diferencia los servicios y productos agotados. Consulta solamente el negocio activo, se actualiza con la sincronización y muestra una advertencia cuando esta falla. **Actualizar** consulta nuevamente el servidor. El buscador del catálogo sigue permitiendo agregar un SKU con Enter.
+
+La pantalla de venta usa una tabla amplia, inspirada en la referencia de caja:
+
+1. La barra superior abre Órdenes, Mesas, Gastos, Clientes, Ventas, Cotizaciones, Inventario y Turno, según permisos y módulos activos.
+2. La cabecera muestra documento, cliente, pago, recibido y correo. **Datos** despliega búsqueda de clientes registrados, identificación, dirección y demás datos. También se despliega al seleccionar Crédito fiscal interno.
+3. En **Código o descripción del producto**, escribe o escanea un código o selecciona una sugerencia. Revisa unidad, existencias y precio; indica cantidad y pulsa **Agregar** o Enter. Las cantidades fraccionarias se admiten solo para unidades que las permiten. Si ya está en la tabla, la cantidad se suma sin exceder existencias.
+4. La tabla muestra código, descripción, cantidad, unidad, precio, importe antes del descuento general, tipo y existencias. Cambia cantidades, elimina partidas o ajusta precios con permiso de administrador/gerente. El descuento general, impuesto y total aparecen arriba del detalle.
+5. Debajo están las opciones de impresión/correo y los botones Cobrar, Guardar cotización y Enviar a cocina. **Explorar catálogo de productos** conserva la vista de tarjetas y filtro por categoría.
+
+En teléfono, los campos se acomodan y la tabla se desplaza horizontalmente. La cabecera no inventa un número de factura: se asigna al confirmar el cobro en el servidor. La pantalla no añade bodegas múltiples ni hojas de despacho, que no son funciones activas del sistema.
 
 Antes del cobro elige:
 
@@ -81,4 +91,4 @@ npm.cmd start
 
 Ejecuta los comandos en orden y detente si alguno falla. Conserva tu `POS_DATA_DIR` habitual y prueba primero con una copia cuando actualices una base anterior. Recarga la página del POS después de reiniciar el servidor.
 
-`npm test` usa bases temporales: comprueba correo automático con reintentos, reinicio y desconexión SMTP, buscador de existencias, salida automática de ticket/PDF, navegación por rol, protección del tipo de negocio, impresión HTML escapada, perfiles históricos, aislamiento entre negocios y coincidencia de descargas y adjuntos contra un receptor SMTP local. No envía correos a personas ni utiliza tus datos reales. La entrega con un proveedor externo, la impresión física y la prueba visual del navegador requieren validación en la instalación final.
+`npm test` usa bases temporales: comprueba correo automático con reintentos, reinicio y desconexión SMTP, buscador de existencias, salida automática de ticket/PDF, navegación por rol, protección del tipo de negocio, impresión HTML escapada, perfiles históricos, aislamiento entre negocios y coincidencia de descargas y adjuntos contra un receptor SMTP local. No envía correos a personas ni utiliza tus datos reales. La entrega con un proveedor externo, la impresión física y la prueba en Windows requieren validación en la instalación final. Esta pantalla se verificó en Chromium sin interfaz, con tamaños de escritorio y móvil, además de las pruebas de API/DOM.

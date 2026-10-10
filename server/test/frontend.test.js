@@ -25,6 +25,10 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  w.document.activeElement.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Home',bubbles:true}));assert.equal(w.eval('activeModule'),'pos');
  assert.equal(w.document.querySelectorAll('.module.active').length,1);
  assert.equal(w.document.getElementById('admin-hero'),null);
+ assert.equal(w.document.getElementById('cart-list').tagName,'TBODY');
+ assert.equal(w.document.getElementById('billing-more').open,false);
+ w.document.querySelector('[data-sale-target="reports"]').click();assert.equal(w.eval('activeModule'),'reports');assert.ok(w.document.getElementById('expense-form'));w.setActiveModule('pos');
+
  assert.ok(w.document.getElementById('sale-billing-panel').contains(w.document.getElementById('billing-customer-email')));
  assert.ok(w.document.getElementById('sale-billing-panel').contains(w.document.getElementById('billing-payment-method')));
  assert.ok(w.document.getElementById('sale-billing-panel').compareDocumentPosition(w.document.querySelector('.pos-grid')) & w.Node.DOCUMENT_POSITION_FOLLOWING);
@@ -50,7 +54,11 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  await w.handleProductSubmit({preventDefault(){}});
  const added=w.eval("state.products.find(p=>p.code==='UI-001')");assert.ok(added,alerts.join('\n'));
  w.setActiveModule('pos');const search=w.document.getElementById('search-input');search.value='UI-001';search.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
- assert.equal(w.eval('cart[0].id'),added.id);w.setCartItemQuantity(0,.5);
+ assert.equal(w.eval('cart[0].id'),added.id);
+ assert.equal(w.document.querySelector('#cart-list .sale-line td').textContent,'UI-001');
+ search.value='UI-001';w.document.getElementById('sale-entry-quantity').value='2';w.addSaleEntry();assert.equal(w.eval('cart[0].qty'),1);
+ w.clearCart();search.value='UI-001';w.document.getElementById('sale-entry-quantity').value='.5';w.addSaleEntry();assert.equal(w.eval('cart[0].qty'),.5);assert.equal(w.document.querySelector('#cart-list .sale-line-amount').textContent,w.eval('currency(1.25)'));
+
  w.document.getElementById('billing-discount-percent').value='20';w.document.getElementById('billing-discount-reason').value='Prueba DOM';w.renderCart();assert.equal(w.getCartTotals().total,1.13);
  w.document.getElementById('billing-new-customer-btn').click();
  assert.notEqual(w.getComputedStyle(w.document.getElementById('save-customer-btn')).display,'none');
@@ -106,7 +114,7 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  // Real sessions keep their existing role permissions within the three workspaces.
  const cashier=w.eval("state.employees.find(u=>u.name==='Prueba UI')");
  await v.logoutUser();v.document.getElementById('employee-select').value=String(cashier.id);v.document.getElementById('pin-input').value='654321';await v.loginUser();
- assert.equal(v.eval('currentEmployee.role'),'cajero');assert.deepEqual(navLabels(v),['Caja','Documentos']);
+ assert.equal(v.eval('currentEmployee.role'),'cajero');assert.equal(v.document.querySelector('[data-sale-target=inventory]').classList.contains('hidden'),true);assert.equal(v.document.querySelector('[data-sale-target=reports]').classList.contains('hidden'),true);assert.deepEqual(navLabels(v),['Caja','Documentos']);
  v.setActiveModule('settings');assert.notEqual(v.eval('activeModule'),'settings');assert.equal(v.document.getElementById('setting-business_type').disabled,true);
  await assert.rejects(v.apiRequest('/settings',{method:'PUT',body:JSON.stringify({business_type:'services'})}),error=>error.status===403);
  for(const role of ['gerente','cocina']){
@@ -123,5 +131,5 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  const delayed=await w.posFetch(base+'/api/settings'),reading=delayed.json();
  w.setBusinessId(childId);w.setBusinessId('principal');releaseBody();await assert.rejects(reading,error=>error.status===409);w.fetch=realFetch;
  assert.deepEqual(errors,[]);console.log('DOM + real HTTP OK: checkout, recovery, sync, inventory, documents, multibusiness creation, switching, configuration and tab isolation; no script errors.');
- }finally{first?.window.close();second?.window.close();if(server)await new Promise(resolve=>{server.once('exit',resolve);server.kill('SIGTERM')});fs.rmSync(dir,{recursive:true,force:true});}
+ }finally{for(const dom of [first,second]){if(dom){dom.window.stopSync();dom.window.eval('currentEmployee=null');dom.window.close();}}if(server)await new Promise(resolve=>{server.once('exit',resolve);server.kill('SIGTERM')});fs.rmSync(dir,{recursive:true,force:true});}
 });

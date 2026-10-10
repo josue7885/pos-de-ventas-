@@ -183,7 +183,7 @@ async function syncFromServer() {
   if (seq !== syncSequence || !currentEmployee || currentEmployee.id !== userId) return;
   stockLastUpdated=Date.now();stockSyncError=false;
   const stamp=JSON.stringify([data.products,data.sales,data.shift,data.orders,data.user,data.rooms,data.tables,data.categories,data.settings]);
-  if (stamp===lastSnapshot) { renderStockSearch();if(activeModule==='documents')refreshDocuments(); return; }
+  if (stamp===lastSnapshot) { renderSaleWorkspace();renderStockSearch();if(activeModule==='documents')refreshDocuments(); return; }
   lastSnapshot=stamp;
   currentEmployee=data.user;
   if(data.settings){state.companySettings=data.settings;applyCompanySettings(data.settings);applyBusinessConfiguration();}
@@ -196,7 +196,7 @@ async function syncFromServer() {
   const category=document.getElementById('category-filter')?.value;
   renderCategoryFilter();
   if(category && document.getElementById('category-filter')) document.getElementById('category-filter').value=category;
-  renderProducts();renderStockSearch();renderInventory();renderCashPanel();renderReports();
+  renderProducts();renderSaleWorkspace();renderStockSearch();renderInventory();renderCashPanel();renderReports();
   for(const field of draftFields){const el=document.getElementById(field.id);if(el){el.value=field.value;if(el.type==='checkbox')el.checked=field.checked;}}
   if(focused) document.getElementById(focused)?.focus();
   renderOrders();renderKitchenOrders();renderTables();updateHeader();renderNav();
@@ -205,6 +205,7 @@ async function syncFromServer() {
 function initOrderEventStream() {
   stopSync();
   syncTimer=setInterval(() => syncFromServer().catch(error => {
+    if(typeof document==='undefined'||!currentEmployee)return;
     const badge=document.getElementById('shift-status');
     if (badge) badge.textContent='Sin sincronización';
     stockSyncError=true;renderStockSearch();
@@ -778,6 +779,7 @@ function setActiveModule(moduleId) {
   if(!allowed.includes(moduleId))moduleId=allowed.includes(activeModule)?activeModule:allowed[0];
   if(!moduleId){renderNav();return;}
   activeModule=moduleId;
+  renderSaleWorkspace();
 
   renderNav();
   if (moduleId === 'cash') renderCashPanel();
@@ -905,24 +907,24 @@ function renderCart() {
   const cartList = document.getElementById('cart-list');
 
   if (cart.length === 0) {
-    cartList.innerHTML = '<li class="empty-state cart-empty">El carrito está vacío.</li>';
+    cartList.innerHTML = '<tr><td colspan="9" class="empty-state cart-empty">Agrega productos por código, nombre o desde el catálogo.</td></tr>';
   } else {
-    cartList.innerHTML = cart.map((item, index) => `
-      <li class="cart-item">
-        <div class="cart-details">
-          <strong>${escapeHtml(item.name)}</strong>
-          <span>${currency(item.price)} c/u</span>
-        </div>
-        <div class="cart-controls">
-          <button type="button" class="qty-btn" data-action="decrease" data-index="${index}">−</button>
-          <input class="cart-quantity-input" aria-label="Cantidad" type="number" min="0.001" step="${quantityStep(item)}" value="${item.qty}" data-index="${index}" />
-          ${canEditInventory()?`<button type="button" class="price-adjust-btn ghost-btn small" data-index="${index}">Precio</button>`:''}
-          <button type="button" class="qty-btn" data-action="increase" data-index="${index}">+</button>
-          <button type="button" class="remove-btn" data-index="${index}">Eliminar</button>
-        </div>
-      </li>
-    `).join('');
+    cartList.innerHTML = cart.map((item, index) => {
+      const product=state.products.find(p=>p.id===item.id)||item;
+      return `<tr class="sale-line">
+        <td>${escapeHtml(product.code||'—')}</td>
+        <td class="sale-line-name"><strong>${escapeHtml(item.name)}</strong>${item.priceReason?`<small>${escapeHtml(item.priceReason)}</small>`:''}</td>
+        <td><div class="sale-qty-controls"><button type="button" class="qty-btn" data-action="decrease" data-index="${index}" aria-label="Reducir cantidad de ${escapeHtml(item.name)}">−</button><input class="cart-quantity-input" aria-label="Cantidad de ${escapeHtml(item.name)}" type="number" min="0.001" step="${quantityStep(item)}" value="${item.qty}" data-index="${index}" /><button type="button" class="qty-btn" data-action="increase" data-index="${index}" aria-label="Aumentar cantidad de ${escapeHtml(item.name)}">+</button></div></td>
+        <td>${escapeHtml(item.unit||'unidad')}</td>
+        <td>${currency(item.price)}${canEditInventory()?`<button type="button" class="price-adjust-btn ghost-btn small" data-index="${index}">Editar</button>`:''}</td>
+        <td class="sale-line-amount">${currency(Math.round(PosMath.cents(item.price)*PosMath.quantity(item.qty)/1000)/100)}</td>
+        <td>${tracksStock(product)?'Producto':'Servicio'}</td>
+        <td data-cart-stock="${item.id}">${tracksStock(product)?escapeHtml(product.stock):'Sin control'}</td>
+        <td><button type="button" class="remove-btn" data-index="${index}" aria-label="Quitar ${escapeHtml(item.name)}">×</button></td>
+      </tr>`;
+    }).join('');
   }
+  document.getElementById('sale-line-count').textContent=String(cart.length);
 
   document.querySelectorAll('.qty-btn').forEach((button) => {
     button.addEventListener('click', () => updateCartItemQuantity(Number(button.dataset.index), button.dataset.action));
@@ -941,7 +943,7 @@ function renderCart() {
   document.getElementById('discount-value').textContent = totals.discount.toFixed(2);
   document.getElementById('tax-value').textContent = totals.tax.toFixed(2);
   document.getElementById('total-value').textContent = totals.total.toFixed(2);
-  updateMiniTicketTotals();
+  updateMiniTicketTotals();renderSaleEntry();
 
   const cashReceived = document.getElementById('billing-cash-received') || document.getElementById('cash-received');
   if (cashReceived && (!cashReceived.value || Number(cashReceived.value) < totals.total)) {
