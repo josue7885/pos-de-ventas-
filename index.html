@@ -152,29 +152,29 @@
               <div class="field-group"><label for="sale-entry-unit">Unidad</label><input id="sale-entry-unit" readonly value="—" /></div>
               <div class="field-group"><label for="sale-entry-stock">Existencias</label><input id="sale-entry-stock" readonly value="—" /></div>
               <div class="field-group"><label for="sale-entry-quantity">Cantidad</label><input id="sale-entry-quantity" type="number" min="0.001" step="1" value="1" /></div>
-              <div class="field-group"><label for="sale-entry-price">Precio unitario</label><input id="sale-entry-price" readonly value="—" /></div>
+              <div class="field-group"><label for="sale-entry-price">Precio con IVA</label><input id="sale-entry-price" readonly value="—" /></div>
               <button id="sale-entry-add" class="primary-btn" type="button">Agregar</button>
             </div>
             <small id="sale-entry-status" role="status">Busca un producto para consultar precio y existencias.</small>
           </section>
           <div class="sale-totals-strip">
             <div class="sale-discount"><label for="billing-discount-percent">Descuento general (%)</label><input id="billing-discount-percent" type="number" min="0" max="100" step="0.01" value="0" /><input id="billing-discount-reason" maxlength="240" placeholder="Motivo del descuento" aria-label="Motivo del descuento" /></div>
-            <div><span>Importe artículos</span><strong><span class="currency-code">USD</span> <span id="subtotal-value">0.00</span></strong></div>
+            <div><span>Artículos con IVA</span><strong><span class="currency-code">USD</span> <span id="subtotal-value">0.00</span></strong></div>
             <div><span>Descuento</span><strong>−<span class="currency-code">USD</span> <span id="discount-value">0.00</span></strong></div>
-            <div><span id="sale-tax-label">IVA</span><strong><span class="currency-code">USD</span> <span id="tax-value">0.00</span></strong></div>
+            <div><span id="sale-tax-label">IVA incluido</span><strong><span class="currency-code">USD</span> <span id="tax-value">0.00</span></strong></div>
             <div class="sale-grand-total"><span>Total de la venta</span><strong><span class="currency-code">USD</span> <span id="total-value">0.00</span></strong></div>
           </div>
           <div class="pos-grid sales-detail-grid">
             <section class="panel sale-lines-panel" aria-label="Detalle de la venta">
               <div class="sale-lines-heading"><h3>Artículos de la venta <span id="sale-line-count">0</span></h3><button id="clear-cart-btn" type="button" class="danger-btn small">Vaciar venta</button></div>
-              <div class="table-wrap sale-lines-scroll" tabindex="0" aria-label="Artículos; desplaza horizontalmente para ver todas las columnas"><table class="sale-lines-table"><thead><tr><th>Código</th><th>Descripción</th><th>Cantidad</th><th>Unidad</th><th>Precio venta</th><th>Importe</th><th>Tipo</th><th>Existencias</th><th>Quitar</th></tr></thead><tbody id="cart-list"></tbody></table></div>
+              <div class="table-wrap sale-lines-scroll" tabindex="0" aria-label="Artículos; desplaza horizontalmente para ver todas las columnas"><table class="sale-lines-table"><thead><tr><th>Código</th><th>Descripción</th><th>Cantidad</th><th>Unidad</th><th>Precio con IVA</th><th>Importe</th><th>Tipo</th><th>Existencias</th><th>Quitar</th></tr></thead><tbody id="cart-list"></tbody></table></div>
             </section>
           </div>
           <section class="panel sale-checkout-bar" aria-label="Cobro y entrega del comprobante">
             <div class="receipt-delivery-options"><label for="sale-receipt-output">Al cobrar</label><select id="sale-receipt-output"><option value="ticket">Imprimir ticket (80 mm)</option><option value="pdf">Descargar PDF (A4)</option><option value="none">Solo guardar comprobante</option></select><label class="checkbox-label"><input id="sale-email-receipt" type="checkbox" checked /> Enviar PDF y JSON por correo</label><small>Correo automático con destinatario y SMTP configurado.</small></div>
             <div class="action-row"><button id="save-quote-btn" class="ghost-btn" type="button">Guardar cotización</button><button id="send-kitchen-btn" class="ghost-btn" type="button">Enviar a cocina</button><button id="process-sale-btn" class="primary-btn large" type="button">Cobrar venta</button></div>
           </section>
-          <details id="sale-catalog" class="panel sale-catalog"><summary>Inventario para agregar a la cuenta</summary><p>Consulta existencias y elige la cantidad. El inventario se descuenta al confirmar la venta.</p><div class="catalog-tools"><label for="sale-inventory-search">Buscar producto</label><input id="sale-inventory-search" type="search" placeholder="Nombre, código o categoría" /><label for="category-filter">Categoría</label><select id="category-filter" class="mini-select"><option value="all">Todas</option></select></div><p id="sale-inventory-status" role="status"></p><div class="table-wrap" tabindex="0" aria-label="Inventario para venta"><table class="sale-inventory-table"><thead><tr><th>Código</th><th>Producto</th><th>Precio</th><th>Existencias</th><th>En cuenta</th><th>Cantidad</th><th>Acción</th></tr></thead><tbody id="product-grid"></tbody></table></div></details>
+          <details id="sale-catalog" class="panel sale-catalog"><summary>Inventario para agregar a la cuenta</summary><p>Consulta existencias y elige la cantidad. Precios finales con IVA incluido; no se vuelve a sumar al cobrar. El inventario se descuenta al confirmar la venta.</p><div class="catalog-tools"><label for="sale-inventory-search">Buscar producto</label><input id="sale-inventory-search" type="search" placeholder="Nombre, código o categoría" /><label for="category-filter">Categoría</label><select id="category-filter" class="mini-select"><option value="all">Todas</option></select></div><p id="sale-inventory-status" role="status"></p><div class="table-wrap" tabindex="0" aria-label="Inventario para venta"><table class="sale-inventory-table"><thead><tr><th>Código</th><th>Producto</th><th>Precio con IVA</th><th>Existencias</th><th>En cuenta</th><th>Cantidad</th><th>Acción</th></tr></thead><tbody id="product-grid"></tbody></table></div></details>
         </section>
 
         <section id="module-tables" class="module hidden">
@@ -214,6 +214,7 @@
         </section>
 
         <section id="module-inventory" class="module hidden">
+          <p class="panel tax-price-note">Los precios de venta deben ingresarse con IVA agregado. Los precios existentes se consideran finales; el sistema no agrega otro IVA al cobrar. Los costos y entradas de mercancía mantienen su desglose separado.</p>
           <div class="inventory-layout">
             <div class="panel">
               <div class="panel-header">
@@ -284,7 +285,7 @@
                       <th>Categoría</th>
                       <th>SKU / Código</th>
                       <th>Costo</th>
-                      <th>Precio</th>
+                      <th>Precio con IVA</th>
                       <th>Stock</th>
                       <th>Estado</th>
                       <th>Acciones</th>
@@ -391,12 +392,13 @@
                   <option value="servicio">Servicio</option>
                 </select>
 
-                <label for="product-cost">Costo unitario</label>
+                <label for="product-cost">Costo unitario sin IVA</label>
                 <input id="product-cost" type="number" min="0" step="0.01" value="0" required />
 
-                <label for="product-price">Precio de venta</label>
-                <input id="product-price" type="number" min="0" step="0.01" required />
+                <label for="product-price">Precio de venta (IVA incluido)</label>
+                <input id="product-price" aria-describedby="product-price-note" type="number" min="0" step="0.01" required />
 
+                <p id="product-price-note" class="tax-price-note">Ingresa el precio final con IVA agregado. El sistema desglosa el impuesto incluido y no lo suma nuevamente al cobrar.</p>
                 <label for="product-stock">Existencias actuales</label>
                 <input id="product-stock" type="number" min="0" step="0.001" value="0" required />
 
@@ -486,7 +488,7 @@
                 <label><input data-enabled-payment type="checkbox" value="efectivo" checked /> Efectivo</label>
                 <label><input data-enabled-payment type="checkbox" value="tarjeta" checked /> Tarjeta</label>
                 <label><input data-enabled-payment type="checkbox" value="transferencia" checked /> Transferencia</label>
-                <p>El impuesto se suma al subtotal. Su tasa se configura en Facturación. Las fechas de reportes y cierres siguen usando UTC.</p>
+                <p>Los precios de venta deben ingresarse con IVA incluido. El sistema desglosa el impuesto sin aumentar el total. Su tasa se configura en Facturación. Las fechas de reportes y cierres siguen usando UTC.</p>
               </div></div>
               <div class="settings-grid">
                 <div class="settings-group">

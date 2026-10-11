@@ -41,7 +41,7 @@ module.exports=function(app,getDb,{profile,requireAdminOrManager,ensureOpenPerio
    const value=commerce.checkout(db(),req.body,req.user,Number(profile().iva_rate),{quote:true});
    const now=new Date(),until=new Date(now.getTime()+profile().quote_validity_days*24*60*60*1000);
    const customer=String(req.body.customerName||'Cliente general').slice(0,200);
-   const snapshot={receipt_profile_id:captureProfile(db(),profile()),currency_code:profile().currency_code,...value.totals,discount_percent:value.percent,discount_reason:value.reason,customer_name:customer,customer_nit:String(req.body.customerNit||'CF').slice(0,40),customer_email:String(req.body.customerEmail||'').slice(0,254),customer_phone:String(req.body.customerPhone||'').slice(0,40),customer_address:String(req.body.customerAddress||'').slice(0,1000),customer_department:String(req.body.customerDepartment||'').slice(0,100),customer_municipality:String(req.body.customerMunicipality||'').slice(0,100),customer_giro:String(req.body.customerGiro||'').slice(0,200),document_type:req.body.documentType==='credito_fiscal'?'credito_fiscal':'consumidor_final',employee_name:req.user.name,items:value.items.map(it=>({...it,product_id:it.id,catalog_price:it.catalogPrice,price_reason:it.priceReason}))};
+   const snapshot={prices_include_tax:true,receipt_profile_id:captureProfile(db(),profile()),currency_code:profile().currency_code,...value.totals,discount_percent:value.percent,discount_reason:value.reason,customer_name:customer,customer_nit:String(req.body.customerNit||'CF').slice(0,40),customer_email:String(req.body.customerEmail||'').slice(0,254),customer_phone:String(req.body.customerPhone||'').slice(0,40),customer_address:String(req.body.customerAddress||'').slice(0,1000),customer_department:String(req.body.customerDepartment||'').slice(0,100),customer_municipality:String(req.body.customerMunicipality||'').slice(0,100),customer_giro:String(req.body.customerGiro||'').slice(0,200),document_type:req.body.documentType==='credito_fiscal'?'credito_fiscal':'consumidor_final',employee_name:req.user.name,items:value.items.map(it=>({...it,product_id:it.id,catalog_price:it.catalogPrice,price_reason:it.priceReason}))};
    return db().prepare('INSERT INTO quotes(user_id,created_at,valid_until,snapshot) VALUES (?,?,?,?)').run(req.user.id,now.toISOString(),until.toISOString(),JSON.stringify(snapshot)).lastInsertRowid;
   });res.json({quote:quoteDocument(result.id),replayed:result.replayed});
  }));
@@ -85,7 +85,7 @@ module.exports=function(app,getDb,{profile,requireAdminOrManager,ensureOpenPerio
  app.get('/api/inventory/export',handle((req,res)=>{
   if(!requireAdminOrManager(req,res))return;
   const escape=value=>{let s=String(value??'');if(/^[=+@\-\t\r]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';};
-  const rows=[['Código','Artículo','Categoría','Tipo','Unidad','Costo','Precio','Existencias','Mínimo'],...db().prepare('SELECT * FROM products ORDER BY name').all().map(p=>[p.code,p.name,p.category,p.type,p.unit,p.cost,p.price,p.stock,p.min_stock])];
+  const rows=[['Código','Artículo','Categoría','Tipo','Unidad','Costo sin IVA','Precio con IVA','Existencias','Mínimo'],...db().prepare('SELECT * FROM products ORDER BY name').all().map(p=>[p.code,p.name,p.category,p.type,p.unit,p.cost,p.price,p.stock,p.min_stock])];
   res.type('text/csv').set('Content-Disposition','attachment; filename="inventario.csv"').send('\uFEFF'+rows.map(r=>r.map(escape).join(',')).join('\r\n'));
  }));
 };

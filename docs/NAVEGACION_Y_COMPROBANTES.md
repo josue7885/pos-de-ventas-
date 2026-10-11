@@ -103,3 +103,13 @@ npm.cmd start
 Ejecuta los comandos en orden y detente si alguno falla. Conserva tu `POS_DATA_DIR` habitual y prueba primero con una copia cuando actualices una base anterior. Recarga la página del POS después de reiniciar el servidor.
 
 `npm test` usa bases temporales: comprueba correo automático con reintentos, reinicio y desconexión SMTP, buscador de existencias, salida automática de ticket/PDF, navegación por rol, protección del tipo de negocio, impresión HTML escapada, perfiles históricos, aislamiento entre negocios y coincidencia de descargas y adjuntos contra un receptor SMTP local. No envía correos a personas ni utiliza tus datos reales. La entrega con un proveedor externo, la impresión física y la prueba en Windows requieren validación en la instalación final. Esta pantalla se verificó en Chromium sin interfaz, con tamaños de escritorio y móvil, además de las pruebas de API/DOM.
+
+## Precios finales con IVA y PDF profesionales
+
+Ingresa el **precio de venta con IVA agregado**. El precio del inventario es el importe final que paga el cliente; el sistema desglosa la base y el impuesto sin sumarlo otra vez. Con tasa de 13%, un artículo de $113 se cobra a $113: base $100 e IVA incluido $13. Un descuento de 10% deja un total de $101.70, base $90 e IVA $11.70. Los costos y las entradas de mercancía mantienen su tratamiento separado, sin IVA en el costo unitario.
+
+Al actualizar, los importes del catálogo no se modifican: se interpretan como precios finales. Revisa los productos que antes se hayan ingresado sin IVA. Las ventas y cotizaciones ya emitidas mantienen sus totales y su modalidad anterior; cargar una cotización para vender utiliza los precios y la tasa actuales y requiere revisar el cobro. Confirma cualquier venta pendiente antes de actualizar y recarga todos los clientes del sistema después de reiniciarlo.
+
+Los comprobantes y cotizaciones PDF A4 usan encabezado azul, datos del emisor y cliente, tabla de artículos, total destacado, condiciones y espacio para firmas. Repiten encabezados y numeran páginas en documentos largos. La impresión HTML, el ticket de 80 mm y los adjuntos PDF/JSON comparten los importes guardados. El JSON incluye `prices_include_tax` para indicar la modalidad. Los reportes de inventario, libro de IVA y cierre también tienen tablas y paginación; el libro de IVA usa A4 horizontal.
+
+El diseño conserva la identificación de **comprobante interno sin autorización fiscal**; no genera sellos ni autorizaciones de Hacienda.

@@ -10,7 +10,7 @@ function readBusinessSettings(){const data={};for(const k of businessFields)data
 function applyBusinessConfiguration(){
  for(const id of ['setting-business_type','apply-business-profile'])document.getElementById(id).disabled=currentEmployee?.role!=='admin';
  const c=state.companySettings,name=businessDirectory.find(b=>b.id===getBusinessId())?.name||c.company_name||'Negocio principal';
- document.getElementById('active-business-name').textContent=name;document.querySelectorAll('.currency-code').forEach(el=>el.textContent=c.currency_code||'USD');document.getElementById('sale-tax-label').textContent=c.tax_label||'IVA';
+ document.getElementById('active-business-name').textContent=name;document.querySelectorAll('.currency-code').forEach(el=>el.textContent=c.currency_code||'USD');document.getElementById('sale-tax-label').textContent=(c.tax_label||'IVA')+' incluido';
  for(const id of ['save-quote-btn','quotes-module-create-btn'])document.getElementById(id)?.classList.toggle('hidden',c.quotes_enabled===false);
  for(const id of ['send-kitchen-btn','open-kitchen-display-btn','open-customer-display-btn'])document.getElementById(id)?.classList.toggle('hidden',c.kitchen_enabled===false);
  document.getElementById('receive-stock-btn')?.classList.toggle('hidden',c.receiving_enabled===false);

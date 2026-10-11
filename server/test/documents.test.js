@@ -44,7 +44,7 @@ before(async()=>{
  await ok('/settings',{method:'PUT',body:{company_name:'Negocio A & <tienda>',company_legal_name:'Comercial de Prueba',company_nit:'NIT-PRUEBA',company_address:'Dirección original',company_email:'pos@example.test',currency_code:'MXN',number_locale:'es-MX',tax_label:'Impuesto original',receipt_footer:'Gracias original',smtp_host:'127.0.0.1',smtp_port:smtpPort,smtp_secure:false,smtp_user:'pos@example.test',smtp_password:'SMTP-TEST-SECRET',smtp_from:'pos@example.test',invoice_email_enabled:true}});
  const product=(await ok('/products',{method:'POST',body:{name:'Cacao <img src=x onerror=alert(1)>',category:'Granel',price:3.33,cost:.8,stock:10,unit:'kg'}},201)).product;
  const service=(await ok('/products',{method:'POST',body:{name:'Servicio',category:'Servicios',price:10,cost:2,stock:0,type:'servicio'}},201)).product;
- const body={items:[{id:product.id,price:3.33,qty:.333},{id:service.id,price:10,qty:1}],discountPercent:10,discountReason:'Descuento de prueba',subtotal:10,tax:1.3,total:11.3,customerName:'Cliente <script>alert(1)</script>',customerNit:'CF',customerEmail:'cliente@example.test',customerPhone:'0000-0000',customerAddress:'Calle de prueba',customerDepartment:'San Miguel',customerMunicipality:'Municipio de prueba',customerGiro:'Comercio',paymentMethod:'efectivo',receivedAmount:20};
+ const body={items:[{id:product.id,price:3.33,qty:.333},{id:service.id,price:10,qty:1}],discountPercent:10,discountReason:'Descuento de prueba',subtotal:8.85,tax:1.15,total:10,customerName:'Cliente <script>alert(1)</script>',customerNit:'CF',customerEmail:'cliente@example.test',customerPhone:'0000-0000',customerAddress:'Calle de prueba',customerDepartment:'San Miguel',customerMunicipality:'Municipio de prueba',customerGiro:'Comercio',paymentMethod:'efectivo',receivedAmount:20};
  quote=(await ok('/quotes',{method:'POST',body,key:crypto.randomUUID()})).quote;
  await ok('/shifts/open',{method:'POST',body:{openingCash:0}});
  sale=(await ok('/sales',{method:'POST',body,key:crypto.randomUUID()})).sale;
@@ -66,10 +66,10 @@ test('only administrators can change business type or create businesses, regardl
 
 test('public JSON, printable HTML and PDF use the saved totals and exclude secrets and cost data',async()=>{
  assert.equal(original.schema_version,2);assert.equal(original.profile_source,'issued');assert.equal(original.business_id,'principal');assert.equal(original.currency_code,'MXN');
- assert.equal(original.items[0].line_total,1.11);assert.equal(original.gross,11.11);assert.equal(original.discount,1.11);assert.equal(original.change_amount,8.7);
+ assert.equal(original.items[0].line_total,1.11);assert.equal(original.gross,11.11);assert.equal(original.discount,1.11);assert.equal(original.change_amount,10);
  assert.ok(!JSON.stringify(original).includes('SMTP-TEST-SECRET'));assert.equal(original.items[0].cost,undefined);assert.equal(original.issuer.smtp_user,undefined);assert.equal(original.profile_id,undefined);
  const html=await ok(`/documents/sale/${sale.id}/html`),dom=new JSDOM(html),document=dom.window.document;
- assert.equal(document.querySelectorAll('script,img[onerror]').length,0);assert.match(document.body.textContent,/Negocio A & <tienda>/);assert.match(document.body.textContent,/Impuesto original/);assert.match(document.body.textContent,/Descuento \(10%\)/);assert.match(document.body.textContent,/Cambio:.*8\.70/);assert.match(document.body.textContent,/San Miguel/);dom.window.close();
+ assert.equal(document.querySelectorAll('script,img[onerror]').length,0);assert.match(document.body.textContent,/Negocio A & <tienda>/);assert.match(document.body.textContent,/Impuesto original/);assert.match(document.body.textContent,/Descuento \(10%\)/);assert.match(document.body.textContent,/Cambio:.*10\.00/);assert.match(document.body.textContent,/San Miguel/);dom.window.close();
  const pdf=await request(`/documents/sale/${sale.id}/pdf`),legacy=await request(`/invoices/${sale.id}/pdf`);
  assert.equal(pdf.status,200);assert.match(pdf.headers.get('content-disposition'),/comprobante-.*\.pdf/);assert.equal(pdf.buffer.subarray(0,4).toString(),'%PDF');assert.deepEqual(pdf.buffer,legacy.buffer);
  for(const token of [roles.mesero,roles.cocina])for(const format of ['json','html','pdf'])assert.equal((await request(`/documents/sale/${sale.id}/${format}`,{token})).status,403);
@@ -80,7 +80,7 @@ test('public JSON, printable HTML and PDF use the saved totals and exclude secre
 test('changing issuer settings does not rewrite issued sales or quotes in any format',async()=>{
  await ok('/settings',{method:'PUT',body:{company_name:'Nombre nuevo',company_address:'Dirección nueva',tax_label:'Impuesto nuevo',receipt_footer:'Gracias nuevo',iva_rate:0}});
  assert.deepEqual(await ok(`/documents/sale/${sale.id}/json`),original);
- const q=await ok(`/documents/quote/${quote.id}/json`);assert.equal(q.issuer.company_name,original.issuer.company_name);assert.equal(q.total,11.3);assert.equal(q.issuer.tax_label,'Impuesto original');
+ const q=await ok(`/documents/quote/${quote.id}/json`);assert.equal(q.issuer.company_name,original.issuer.company_name);assert.equal(q.total,10);assert.equal(q.issuer.tax_label,'Impuesto original');
  for(const [kind,id] of [['sale',sale.id],['quote',quote.id]]){
   const html=await ok(`/documents/${kind}/${id}/html`);assert.match(html,/Gracias original/);assert.ok(!html.includes('Gracias nuevo'));
  }
@@ -105,7 +105,7 @@ test('documents with the same numeric ID remain isolated between businesses',asy
  const context={business:childBusiness,token};
  const product=(await ok('/products',{...context,method:'POST',body:{name:'Servicio B',category:'Servicios',price:20,stock:0,type:'servicio'}},201)).product;
  await ok('/shifts/open',{...context,method:'POST',body:{openingCash:0}});
- const childSale=(await ok('/sales',{...context,method:'POST',body:{items:[{id:product.id,price:20,qty:1}],subtotal:20,tax:2.6,total:22.6,paymentMethod:'tarjeta'},key:crypto.randomUUID()})).sale;
+ const childSale=(await ok('/sales',{...context,method:'POST',body:{items:[{id:product.id,price:20,qty:1}],subtotal:17.7,tax:2.3,total:20,paymentMethod:'tarjeta'},key:crypto.randomUUID()})).sale;
  assert.equal(childSale.id,sale.id);
  const own=await ok(`/documents/sale/${sale.id}/json`,context);assert.equal(own.business_id,childBusiness);assert.equal(own.currency_code,'EUR');assert.equal(own.issuer.company_name,'Negocio B');
  assert.deepEqual(await ok(`/documents/sale/${sale.id}/json`),original);
@@ -157,4 +157,28 @@ test('an SMTP disconnect after accepting DATA does not repeat mail or undo the s
  disconnectNext=true;
  const result=await ok('/sales',{method:'POST',body,key});assert.ok(result.sale.id);assert.equal(result.emailDelivery.status,'uncertain');assert.equal(messages.length,count+1);
  const repeat=await ok('/sales',{method:'POST',body,key});assert.equal(repeat.sale.id,result.sale.id);assert.equal(repeat.emailDelivery.status,'uncertain');assert.equal(messages.length,count+1);
+});
+
+test('upgrading a database from exclusive prices preserves issued totals and the old tax label',async()=>{
+ await stop();
+ const SQL=await require('sql.js')(),file=path.join(dir,'pos.db'),db=new SQL.Database(fs.readFileSync(file));
+ // Recreate a pre-upgrade sale and issuer snapshot, without the new database column.
+ db.run('ALTER TABLE sales DROP COLUMN prices_include_tax');
+ db.run('UPDATE sales SET subtotal=10,tax=1.3,total=11.3,change_amount=8.7 WHERE id=?',[sale.id]);
+ const rows=db.exec('SELECT id,profile FROM document_profiles')[0].values;
+ for(const [id,json] of rows){const profile=JSON.parse(json);delete profile.prices_include_tax;db.run('UPDATE document_profiles SET profile=? WHERE id=?',[JSON.stringify(profile),id]);}
+ db.run('UPDATE invoices SET profile_id=? WHERE sale_id=?',[rows[0][0],sale.id]);
+ fs.writeFileSync(file,Buffer.from(db.export()));db.close();await start();
+ const historical=await ok(`/documents/sale/${sale.id}/json`);
+ assert.equal(historical.prices_include_tax,false);assert.equal(historical.subtotal,10);assert.equal(historical.tax,1.3);assert.equal(historical.total,11.3);assert.equal(historical.change_amount,8.7);
+ assert.doesNotMatch(await ok(`/documents/sale/${sale.id}/html`),/IVA incluido|Impuesto original incluido/);
+ await stop();await start();assert.deepEqual(await ok(`/documents/sale/${sale.id}/json`),historical);
+});
+
+
+test('professional report PDFs retain authorization and render inventory, VAT and closing summaries',async()=>{
+ for(const route of ['/reports/inventory/pdf','/reports/vat-book/pdf','/reports/monthly-close/pdf']){
+  const response=await request(route);assert.equal(response.status,200);assert.equal(response.buffer.subarray(0,4).toString(),'%PDF');assert.match(response.headers.get('content-disposition'),/\.pdf/);
+  assert.equal((await request(route,{token:roles.cocina})).status,403);
+ }
 });

@@ -7,11 +7,12 @@ function publicProfile(profile) {
   const result=Object.fromEntries(fields.map(key=>[key,String(profile[key]??'')]));
   result.company_name ||= 'POS Control';result.currency_code ||= 'USD';
   result.number_locale ||= 'es-SV';result.tax_label ||= 'IVA';
+  result.prices_include_tax=profile.prices_include_tax===true;
   result.iva_rate=Number(profile.iva_rate??.13);
   return result;
 }
 function captureProfile(db,profile){
-  const json=JSON.stringify(publicProfile(profile));
+  const json=JSON.stringify(publicProfile({...profile,prices_include_tax:true}));
   const id=crypto.createHash('sha256').update(json).digest('hex');
   db.prepare('INSERT OR IGNORE INTO document_profiles(id,profile) VALUES (?,?)').run(id,json);
   return id;
@@ -23,7 +24,8 @@ function buildDocument(profile,source,{profileSource='issued'}={}) {
   document.customer_name ||= 'Cliente general';document.customer_nit ||= 'CF';
   document.document_type=source.document_type==='credito_fiscal'?'credito_fiscal':'consumidor_final';
   for(const field of ['subtotal','tax','total','discount','discount_percent'])document[field]=Number(source[field]??0);
-  document.gross=Number(source.gross??((math.cents(document.subtotal)+math.cents(document.discount))/100));
+  document.prices_include_tax=source.prices_include_tax!==undefined?Boolean(source.prices_include_tax):issuer.prices_include_tax;
+  document.gross=Number(source.gross??((math.cents(document.prices_include_tax?document.total:document.subtotal)+math.cents(document.discount))/100));
   document.items=(source.items||[]).map(item=>({
     product_id:item.product_id??item.id,name:String(item.name||''),qty:Number(item.qty),unit:String(item.unit||'unidad'),price:Number(item.price),
     line_total:Math.round(math.cents(item.price)*math.quantity(item.qty)/1000)/100,

@@ -24,7 +24,7 @@ async function request(route,{business='principal',token=admin,method='GET',body
 }
 async function ok(route,options,status=200){const r=await request(route,options);assert.equal(r.status,status,JSON.stringify(r.data));return r.data;}
 const login=(business,pin)=>request('/auth/login',{business,token:null,method:'POST',body:{id:1,pin}});
-const sale=(price,tax,extra={})=>({items:[{id:1,price,qty:1}],paymentMethod:'efectivo',subtotal:price,tax,total:Math.round((price+tax)*100)/100,receivedAmount:30,...extra});
+const sale=(price,oldTax,extra={})=>{const subtotal=Math.round(price/(1+oldTax/price)*100)/100;return {items:[{id:1,price,qty:1}],paymentMethod:'efectivo',subtotal,tax:Math.round((price-subtotal)*100)/100,total:price,receivedAmount:30,...extra};};
 
 before(async()=>{
  // Upgrade an actual legacy database; the primary business must keep its accounts and stock.
@@ -67,7 +67,7 @@ test('tokens, cookies, customers, inventory, sales and request keys stay inside 
  assert.equal((await request('/customers/1',{business:b,token:tokenB})).status,404);
  for(const [business,token] of [[a,tokenA],[b,tokenB]])await ok('/shifts/open',{business,token,method:'POST',body:{openingCash:0}});
  const key=crypto.randomUUID();await Promise.all([[a,tokenA,10,1.3],[b,tokenB,20,2.6]].map(([business,token,price,tax])=>ok('/sales',{business,token,method:'POST',body:sale(price,tax),key})));
- await Promise.all(Array.from({length:20},async(_,i)=>{const isA=i%2===0,doc=await ok('/documents/sale/1/json',{business:isA?a:b,token:isA?tokenA:tokenB});assert.equal(doc.total,isA?11.3:22.6);}));
+ await Promise.all(Array.from({length:20},async(_,i)=>{const isA=i%2===0,doc=await ok('/documents/sale/1/json',{business:isA?a:b,token:isA?tokenA:tokenB});assert.equal(doc.total,isA?10:20);}));
  assert.equal((await ok('/sync')).products[0].stock,7);assert.equal((await ok('/sync',{business:a,token:tokenA})).products[0].stock,9);
 });
 

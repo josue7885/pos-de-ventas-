@@ -16,7 +16,7 @@ async function request(route,{token=admin,method='GET',body,key}={}){
  const text=await r.text();let data;try{data=JSON.parse(text);}catch{data=text;}return {status:r.status,data};
 }
 async function ok(route,options,status=200){const r=await request(route,options);assert.equal(r.status,status,JSON.stringify(r.data));return r.data;}
-const checkout=()=>({items:[{id:product.id,price:3.33,qty:.333},{id:service.id,price:2.5,qty:1.25}],discountPercent:10,discountReason:'Promoción de apertura',subtotal:3.82,tax:.50,total:4.32,customerName:'Cliente <script>prueba</script>',customerNit:'1234',customerDepartment:'San Miguel',paymentMethod:'tarjeta'});
+const checkout=()=>({items:[{id:product.id,price:3.33,qty:.333},{id:service.id,price:2.5,qty:1.25}],discountPercent:10,discountReason:'Promoción de apertura',subtotal:3.38,tax:.44,total:3.82,customerName:'Cliente <script>prueba</script>',customerNit:'1234',customerDepartment:'San Miguel',paymentMethod:'tarjeta'});
 const receipt=()=>({productId:product.id,expectedStock:1,qty:.5,cost:1.8,tax:.12,supplier:'Proveedor',reference:'COMPRA-001',notes:'Entrada fraccionaria'});
 before(async()=>{
  await start();admin=(await ok('/auth/login',{method:'POST',body:{id:1,pin:'729184'}})).token;
@@ -41,7 +41,7 @@ test('catalog supports unique SKU, fractional units, services and category valid
 });
 test('quotes are durable, replay-safe and never open shifts, charge or consume stock',async()=>{
  quote=(await ok('/quotes',{method:'POST',body:checkout(),key:quoteKey})).quote;
- assert.equal(quote.total,4.32);assert.equal(quote.discount,.42);assert.equal(quote.kind,'quote');assert.equal(quote.customer_department,'San Miguel');
+ assert.equal(quote.total,3.82);assert.equal(quote.discount,.42);assert.equal(quote.kind,'quote');assert.equal(quote.customer_department,'San Miguel');
  const replay=await ok('/quotes',{method:'POST',body:checkout(),key:quoteKey});assert.equal(replay.quote.id,quote.id);assert.equal(replay.replayed,true);
  assert.equal((await request('/quotes',{method:'POST',body:{...checkout(),customerName:'changed'},key:quoteKey})).status,409);
  const sync=await ok('/sync');assert.equal(sync.shift.isOpen,false);assert.equal(sync.sales.length,0);assert.equal(sync.products.find(p=>p.id===product.id).stock,1);
@@ -62,26 +62,26 @@ test('receiving stock computes weighted cost and journals exactly one purchase a
 test('discounts and price changes are authorized, fractional totals match and quotes convert once',async()=>{
  await ok('/shifts/open',{method:'POST',body:{openingCash:0}});
  assert.equal((await request('/sales',{token:cashier,method:'POST',body:checkout(),key:crypto.randomUUID()})).status,403);
- const special={...checkout(),items:[{id:service.id,price:2.4,catalogPrice:2.5,priceReason:'Precio de promoción',qty:1.25}],discountPercent:0,subtotal:3,tax:.39,total:3.39};
+ const special={...checkout(),items:[{id:service.id,price:2.4,catalogPrice:2.5,priceReason:'Precio de promoción',qty:1.25}],discountPercent:0,subtotal:2.65,tax:.35,total:3};
  assert.equal((await request('/sales',{token:cashier,method:'POST',body:special,key:crypto.randomUUID()})).status,409);
  const specialSale=await ok('/sales',{method:'POST',body:special,key:crypto.randomUUID()});assert.equal(specialSale.sale.items[0].price_reason,'Precio de promoción');assert.equal(specialSale.sale.items[0].catalog_price,2.5);
  assert.equal((await request('/sales',{method:'POST',body:{...checkout(),total:4.31},key:crypto.randomUUID()})).status,409);
  assert.equal((await request('/sales',{method:'POST',body:{...checkout(),items:[{id:product.id,price:3.33,qty:.3334}]},key:crypto.randomUUID()})).status,400);
  sale=(await ok('/sales',{method:'POST',body:{...checkout(),quoteId:quote.id},key:saleKey})).sale;
- assert.equal(sale.total,4.32);assert.equal(sale.discount,.42);assert.equal(sale.items[0].cost,1.4);
+ assert.equal(sale.total,3.82);assert.equal(sale.discount,.42);assert.equal(sale.items[0].cost,1.4);
  assert.equal((await request('/sales',{method:'POST',body:{...checkout(),quoteId:quote.id},key:crypto.randomUUID()})).status,409);
  const sync=await ok('/sync');assert.equal(sync.products.find(p=>p.id===product.id).stock,1.167);assert.equal(sync.products.find(p=>p.id===service.id).stock,0);
  assert.equal((await ok(`/documents/quote/${quote.id}/json`)).converted_sale_id,sale.id);
  const order=await ok('/orders',{method:'POST',body:{items:[{id:product.id,qty:.333}]}});assert.equal(order.order.total,1.11);
 });
 test('report exports share filters and historical cost snapshots survive catalog edits and restart',async()=>{
- const report=await ok('/reports/sales?payment=tarjeta&employee=Administrador');assert.equal(report.count,2);assert.equal(report.sales.find(s=>s.id===sale.id).profit,2.35);
+ const report=await ok('/reports/sales?payment=tarjeta&employee=Administrador');assert.equal(report.count,2);assert.equal(report.sales.find(s=>s.id===sale.id).profit,1.91);
  assert.equal((await ok('/reports/sales?payment=efectivo')).count,0);
  const csv=await ok('/reports/sales/export?payment=efectivo');assert.equal(csv.trim().split('\n').length,1);
  assert.equal((await request('/reports/sales/export?payment=fake')).status,400);
  const p=(await ok('/sync')).products.find(p=>p.id===product.id);
  await ok('/products/'+p.id,{method:'PUT',body:{...p,cost:9,expectedStock:p.stock,expectedVersion:p.version}});
- assert.equal((await ok('/reports/sales')).sales.find(s=>s.id===sale.id).profit,2.35);
+ assert.equal((await ok('/reports/sales')).sales.find(s=>s.id===sale.id).profit,1.91);
  await stop();await start();
  assert.equal((await ok('/quotes',{method:'POST',body:checkout(),key:quoteKey})).quote.id,quote.id);
  assert.equal((await ok('/inventory/receive',{method:'POST',body:receipt(),key:receiptKey})).replayed,true);

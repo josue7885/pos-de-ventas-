@@ -36,7 +36,7 @@ La configuración existente mantiene los módulos habilitados al migrar. Cambiar
 - Nombre comercial, datos de empresa, logo, serie y correlativo, configuración de correo y PIN ejecutivo.
 - Moneda: USD, EUR, GTQ, HNL, NIO, CRC, MXN o DOP. No hay conversión de divisas. La moneda deja de poder cambiar cuando existen ventas, cotizaciones, compras, gastos o cajas registradas, incluso cerradas.
 - Formato de números y moneda; los reportes y cierres continúan usando fechas UTC.
-- Nombre del impuesto y tasa única añadida al subtotal. `0.13` significa 13%; `0` permite una operación sin impuesto. La tasa inicial sigue siendo 13% y debe revisarse antes de vender. No se determina automáticamente por país ni por tipo de negocio.
+- Nombre del impuesto y tasa única desglosada del precio final con impuesto incluido. `0.13` significa 13%; `0` permite una operación sin impuesto. La tasa inicial sigue siendo 13% y debe revisarse antes de vender. No se determina automáticamente por país ni por tipo de negocio.
 - Métodos de pago habilitados: efectivo, tarjeta y transferencia; debe quedar al menos uno. El servidor rechaza nuevos cobros con métodos deshabilitados.
 - Vigencia de nuevas cotizaciones entre 1 y 90 días y mensaje al pie del PDF.
 - Mesas/salones, pedidos/cocina, creación de cotizaciones y recepción de mercancía.
@@ -82,3 +82,13 @@ El formato de respaldo 2 incluye principal y todos los negocios, incluso los des
 Los negocios no comparten inventario, cuentas, clientes ni reportes. No hay transferencias de existencias, consolidación de estados financieros o cajas independientes por terminal. El servidor y los archivos siguen siendo una instalación administrada por un mismo operador; esta versión no incorpora facturación de suscripciones ni aprovisionamiento de una plataforma SaaS.
 
 La moneda configurable no constituye integración fiscal para esos países: los comprobantes siguen siendo internos sin autorización fiscal. La prueba SMTP utiliza un receptor local y valida los adjuntos; no certifica entrega con Gmail u otro proveedor. Tampoco certifica impresión física, instaladores ni ejecución nativa en Windows.
+
+## Precios finales con IVA y PDF profesionales
+
+Ingresa el **precio de venta con IVA agregado**. El precio del inventario es el importe final que paga el cliente; el sistema desglosa la base y el impuesto sin sumarlo otra vez. Con tasa de 13%, un artículo de $113 se cobra a $113: base $100 e IVA incluido $13. Un descuento de 10% deja un total de $101.70, base $90 e IVA $11.70. Los costos y las entradas de mercancía mantienen su tratamiento separado, sin IVA en el costo unitario.
+
+Al actualizar, los importes del catálogo no se modifican: se interpretan como precios finales. Revisa los productos que antes se hayan ingresado sin IVA. Las ventas y cotizaciones ya emitidas mantienen sus totales y su modalidad anterior; cargar una cotización para vender utiliza los precios y la tasa actuales y requiere revisar el cobro. Confirma cualquier venta pendiente antes de actualizar y recarga todos los clientes del sistema después de reiniciarlo.
+
+Los comprobantes y cotizaciones PDF A4 usan encabezado azul, datos del emisor y cliente, tabla de artículos, total destacado, condiciones y espacio para firmas. Repiten encabezados y numeran páginas en documentos largos. La impresión HTML, el ticket de 80 mm y los adjuntos PDF/JSON comparten los importes guardados. El JSON incluye `prices_include_tax` para indicar la modalidad. Los reportes de inventario, libro de IVA y cierre también tienen tablas y paginación; el libro de IVA usa A4 horizontal.
+
+El diseño conserva la identificación de **comprobante interno sin autorización fiscal**; no genera sellos ni autorizaciones de Hacienda.

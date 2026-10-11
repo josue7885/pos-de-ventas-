@@ -45,8 +45,8 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  w.document.getElementById('stock-qty-1').value='6';w.addInventoryToSale(1);assert.equal(w.eval('cart.length'),0);w.document.getElementById('stock-qty-1').value='1';
  await w.openShift();assert.equal(w.eval('state.shift.isOpen'),true);
  const autoPrintDom=new JSDOM('<!DOCTYPE html><html></html>');let autoPrinted=0;autoPrintDom.window.print=()=>autoPrinted++;autoPrintDom.window.focus=()=>{};w.open=()=>autoPrintDom.window;
- w.addToCart(1);w.openBillingModal('payment');assert.equal(w.document.getElementById('billing-cash-received').value,'5.09');await w.processSale();assert.equal(w.eval('state.sales.length'),1);assert.equal(w.eval('state.products[0].stock'),4);
- w.selectWorkspace('home');assert.equal(w.document.getElementById('home-sale-count').textContent,'1');assert.equal(w.document.getElementById('home-period-total').textContent,w.eval('currency(5.09)'));assert.match(w.document.getElementById('home-top-products').textContent,/Café/);w.setActiveModule('pos');
+ w.addToCart(1);w.openBillingModal('payment');assert.equal(w.document.getElementById('billing-cash-received').value,'4.50');await w.processSale();assert.equal(w.eval('state.sales.length'),1);assert.equal(w.eval('state.products[0].stock'),4);
+ w.selectWorkspace('home');assert.equal(w.document.getElementById('home-sale-count').textContent,'1');assert.equal(w.document.getElementById('home-period-total').textContent,w.eval('currency(4.5)'));assert.match(w.document.getElementById('home-top-products').textContent,/Café/);w.setActiveModule('pos');
  assert.equal(autoPrinted,1);assert.match(autoPrintDom.window.document.querySelector('style').textContent,/80mm/);autoPrintDom.window.close();w.open=()=>null;
  assert.match(w.document.getElementById('system-product-results').textContent,/4 unidad/);
  assert.match(w.document.getElementById('sale-document-confirmation').textContent,/cliente no tiene correo/);
@@ -73,7 +73,7 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  const summary=w.homeSummary([{createdAt:new w.Date(2026,9,9,23,59).toISOString(),total:1.13,items:[{id:1,name:'Granel',unit:'kg',qty:.5}]},{createdAt:new w.Date(2026,9,10,0,1).toISOString(),total:2.26,items:[{id:1,name:'Granel',unit:'kg',qty:.25}]},{createdAt:new w.Date(2026,8,1).toISOString(),total:100,items:[]}],7,new w.Date(2026,9,10,12));
  assert.equal(summary.totalCents,339);assert.equal(summary.todayCents,226);assert.equal(summary.count,2);assert.equal(summary.top[0].qty,750);assert.equal(summary.daily.length,7);
  w.selectWorkspace('home');w.document.getElementById('home-period').value='30';w.document.getElementById('home-period').dispatchEvent(new w.Event('change'));assert.equal(w.document.querySelectorAll('#home-daily-chart .home-day').length,30);w.setActiveModule('pos');
- w.document.getElementById('billing-discount-percent').value='20';w.document.getElementById('billing-discount-reason').value='Prueba DOM';w.renderCart();assert.equal(w.getCartTotals().total,1.13);
+ w.document.getElementById('billing-discount-percent').value='20';w.document.getElementById('billing-discount-reason').value='Prueba DOM';w.renderCart();assert.equal(w.getCartTotals().total,1);
  w.selectWorkspace('home');w.document.querySelector('[data-home-action=customer]').click();assert.equal(w.eval('activeModule'),'pos');assert.equal(w.eval('cart[0].qty'),.5);
  assert.notEqual(w.getComputedStyle(w.document.getElementById('save-customer-btn')).display,'none');
  assert.equal(w.document.getElementById('billing-modal').classList.contains('hidden'),true);
@@ -83,19 +83,19 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  await w.saveCustomerFromForm();w.closeBillingModal();assert.equal(w.document.querySelectorAll('#customer-select img').length,0);
  loseOperation='/api/quotes';await w.saveQuoteFromCart();assert.equal(w.document.getElementById('operation-recovery-panel').classList.contains('hidden'),false);
  w.clearCart();await w.trackedOperation('quote','/quotes',null);await w.refreshDocuments();
- const quote=w.eval("documentDirectory.find(d=>d.kind==='quote')");assert.ok(quote);assert.equal(quote.total,1.13);assert.equal(w.eval('state.sales.length'),2);assert.equal(w.document.querySelectorAll('#documents-quotes-content img').length,0);
+ const quote=w.eval("documentDirectory.find(d=>d.kind==='quote')");assert.ok(quote);assert.equal(quote.total,1);assert.equal(w.eval('state.sales.length'),2);assert.equal(w.document.querySelectorAll('#documents-quotes-content img').length,0);
  assert.ok(w.document.querySelector('[data-kind="quote"][data-document-action="email"]'));
  const printDom=new JSDOM('<!DOCTYPE html><html></html>');let printed=0;
  printDom.window.print=()=>printed++;printDom.window.focus=()=>{};w.open=()=>printDom.window;
  await w.printDocument(quote);assert.equal(printed,1);assert.equal(printDom.window.document.querySelectorAll('script,img[onerror]').length,0);
- assert.match(printDom.window.document.body.textContent,/Descuento \(20%\)/);assert.match(printDom.window.document.body.textContent,/1\.13/);
+ assert.match(printDom.window.document.body.textContent,/Descuento \(20%\)/);assert.match(printDom.window.document.body.textContent,/1\.00/);
  printDom.window.close();w.open=()=>null;
  // The authenticated download path is also used for the business-specific PDF and JSON.
  const downloads=[];w.URL.createObjectURL=blob=>{downloads.push({blob});return 'blob:local-test';};w.URL.revokeObjectURL=()=>{};
  w.HTMLAnchorElement.prototype.click=function(){downloads.at(-1).filename=this.download;};
  for(const action of ['json','pdf'])await w.documentAction({target:w.document.querySelector(`[data-kind="quote"][data-document-action="${action}"]`)});
  assert.equal(JSON.parse(await downloads[0].blob.text()).number,quote.number);assert.match(downloads[0].filename,/^cotizacion-COT-.*\.json$/);assert.equal((await downloads[1].blob.text()).slice(0,4),'%PDF');
- await w.loadQuoteToCart(quote);assert.equal(w.getCartTotals().total,1.13);
+ await w.loadQuoteToCart(quote);assert.equal(w.getCartTotals().total,1);
  w.document.getElementById('sale-receipt-output').value='pdf';w.document.getElementById('billing-cash-received').value='10';w.openBillingModal('payment');assert.equal(w.document.getElementById('billing-cash-received').value,'10');assert.notEqual(w.getComputedStyle(w.document.getElementById('confirm-billing-btn')).display,'none');await w.processSale();assert.equal(w.eval('state.sales.length'),3);assert.equal(w.eval('selectedQuoteId'),null);assert.match(downloads.at(-1).filename,/^comprobante-.*\.pdf$/);assert.match(w.document.getElementById('sale-document-confirmation').textContent,/configura y activa SMTP/);assert.equal(w.document.getElementById('billing-customer-email').value,'');assert.equal(w.document.getElementById('billing-customer-name').value,'');assert.equal(w.document.getElementById('customer-select').value,'');
  w.setActiveModule('inventory');await w.syncFromServer();
  for(const [id,value] of Object.entries({'receive-product':String(added.id),'receive-quantity':'1','receive-unit-cost':'3','receive-supplier':'Proveedor UI','receive-reference':'UI-REC-1'}))w.document.getElementById(id).value=value;

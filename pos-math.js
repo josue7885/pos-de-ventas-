@@ -4,9 +4,11 @@
   function totals(items, rate=.13, percent=0) {
     const grossCents=items.reduce((sum,item)=>sum+Math.round(cents(item.price)*quantity(item.qty)/1000),0);
     const discountCents=Math.round(grossCents*Math.round(Number(percent)*100)/10000);
-    const subtotalCents=grossCents-discountCents;
-    const taxCents=Math.round(subtotalCents*Number(rate));
-    return {gross: grossCents/100, discount:discountCents/100, subtotal:subtotalCents/100,tax:taxCents/100,total:(subtotalCents+taxCents)/100};
+    // Catalog prices are final prices, including tax. Discount the payable amount first.
+    const totalCents=grossCents-discountCents;
+    const subtotalCents=Math.round(totalCents/(1+Number(rate)));
+    const taxCents=totalCents-subtotalCents;
+    return {gross: grossCents/100, discount:discountCents/100, subtotal:subtotalCents/100,tax:taxCents/100,total:totalCents/100};
   }
   const api={cents,quantity,totals};
   if(typeof module!=='undefined' && module.exports)module.exports=api;else root.PosMath=api;

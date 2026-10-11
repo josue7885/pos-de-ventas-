@@ -315,6 +315,7 @@ async function openDatabase(dbPath,adminPin,adminName,releaseLock) {
     db.prepare(`CREATE TABLE IF NOT EXISTS shifts (id INTEGER PRIMARY KEY AUTOINCREMENT, opened_by INTEGER, closed_by INTEGER, opened_at TEXT, closed_at TEXT, opening_cents INTEGER NOT NULL, observed_cents INTEGER)`).run();
     db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS one_open_shift ON shifts((1)) WHERE closed_at IS NULL`).run();
     ensureColumn('sales', 'shift_id', 'INTEGER');
+    ensureColumn('sales', 'prices_include_tax', 'INTEGER NOT NULL DEFAULT 0');
     db.prepare(`CREATE TABLE IF NOT EXISTS rooms (id TEXT PRIMARY KEY, name TEXT NOT NULL)`).run();
     db.prepare(`CREATE TABLE IF NOT EXISTS restaurant_tables (id INTEGER PRIMARY KEY AUTOINCREMENT, room TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'libre', waiter TEXT DEFAULT '', customer TEXT DEFAULT '', notes TEXT DEFAULT '')`).run();
     db.prepare("INSERT OR IGNORE INTO rooms (id,name) VALUES ('salon-principal','Salón principal')").run();

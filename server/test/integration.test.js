@@ -16,7 +16,7 @@ async function request(route,{token,method='GET',body,headers={}}={}){
  const text=await response.text();let data;try{data=JSON.parse(text);}catch{data=text;}return {status:response.status,data,headers:response.headers};
 }
 const auth=async(id,pin)=>request('/api/auth/login',{method:'POST',body:{id,pin}});
-function payload(qty=1){const subtotal=Math.round(product.price*100)*qty,tax=Math.round(subtotal*.13);return {items:[{id:product.id,name:'Untrusted name',price:product.price,qty}],paymentMethod:'efectivo',subtotal:subtotal/100,tax:tax/100,total:(subtotal+tax)/100,receivedAmount:100,employeeName:'Forged name'};}
+function payload(qty=1){const total=Math.round(product.price*100)*qty,subtotal=Math.round(total/1.13),tax=total-subtotal;return {items:[{id:product.id,name:'Untrusted name',price:product.price,qty}],paymentMethod:'efectivo',subtotal:subtotal/100,tax:tax/100,total:(subtotal+tax)/100,receivedAmount:100,employeeName:'Forged name'};}
 before(start);after(async()=>{await stop();fs.rmSync(dataDir,{recursive:true,force:true});});
 test('public bootstrap never exposes secrets; protected API and source files are private',async()=>{
  assert.equal((await request('/api/health')).data.service,'pos-control');
@@ -41,12 +41,12 @@ test('opening shared shift prevents duplicate opening; correct change calculated
  const r=await request('/api/shifts/open',{token:cashier,method:'POST',body:{openingCash:10}});assert.equal(r.status,200);shift=r.data.shift;
  assert.equal((await request('/api/shifts/open',{token:admin,method:'POST',body:{openingCash:0}})).status,409);
  key=crypto.randomUUID();const r2=await request('/api/sales',{token:cashier,method:'POST',headers:{'Idempotency-Key':key},body:payload()});assert.equal(r2.status,200,JSON.stringify(r2.data));savedSale=r2.data.sale;
- assert.equal(savedSale.total,5.09);assert.equal(savedSale.change_amount,94.91);assert.equal(savedSale.employee_name,'Caja');assert.equal(savedSale.items[0].name,'Café');
+ assert.equal(savedSale.total,4.5);assert.equal(savedSale.change_amount,95.5);assert.equal(savedSale.employee_name,'Caja');assert.equal(savedSale.items[0].name,'Café');
 });
 test('same sale key is replay-safe, including simultaneous retries',async()=>{
  const results=await Promise.all(Array.from({length:4},()=>request('/api/sales',{token:cashier,method:'POST',headers:{'Idempotency-Key':key},body:payload()})));
  for(const r of results){assert.equal(r.status,200);assert.equal(r.data.sale.id,savedSale.id);assert.equal(r.data.replayed,true);}
- const snapshot=(await request('/api/sync',{token:admin})).data;assert.equal(snapshot.sales.length,1);assert.equal(snapshot.products[0].stock,5);assert.equal(snapshot.shift.currentCash,15.09);
+ const snapshot=(await request('/api/sync',{token:admin})).data;assert.equal(snapshot.sales.length,1);assert.equal(snapshot.products[0].stock,5);assert.equal(snapshot.shift.currentCash,14.5);
  const changed=await request('/api/sales',{token:cashier,method:'POST',headers:{'Idempotency-Key':key},body:payload(2)});assert.equal(changed.status,409);
 });
 test('negative quantities, stale prices/totals, insufficient stock and payment never mutate data',async()=>{
@@ -83,7 +83,7 @@ test('restart preserves sales, inventory, session and idempotency ledger',async(
  const pdf=await request(`/api/invoices/${savedSale.id}/pdf`,{token:admin});assert.equal(pdf.status,200);assert.match(pdf.data,/^%PDF/);
 });
 test('closing shift and logout are authoritative',async()=>{
- assert.equal((await request('/api/shifts/close',{token:cashier,method:'POST',body:{observedCash:35.43,shiftId:shift.id}})).status,200);
+ assert.equal((await request('/api/shifts/close',{token:cashier,method:'POST',body:{observedCash:32.5,shiftId:shift.id}})).status,200);
  assert.equal((await request('/api/sales',{token:cashier,method:'POST',headers:{'Idempotency-Key':crypto.randomUUID()},body:payload()})).status,409);
  assert.equal((await request('/api/auth/logout',{token:cashier,method:'POST',body:{}})).status,200);
  assert.equal((await request('/api/sync',{token:cashier})).status,401);

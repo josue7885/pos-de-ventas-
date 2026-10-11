@@ -3,7 +3,7 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const PDFDocument = require('pdfkit');
+const {reportDocument} = require('./report-pdf');
 const { create } = require('xmlbuilder2');
 const dbPromise = require('./db');
 let db;
@@ -158,27 +158,6 @@ function addVatBookEntry(invoice) {
      safeIva,
      total
    );
-}
-
-function buildPdfHeader(doc, title, periodStart, periodEnd) {
-  const settings = buildCompanyProfile();
-  doc.fontSize(10).text('Moneda: '+settings.currency_code);
-  if (settings.company_logo && String(settings.company_logo).startsWith('data:')) {
-   try {
-     const parts = String(settings.company_logo).split(',');
-     const imgBuf = Buffer.from(parts[1] || '', 'base64');
-     doc.image(imgBuf, { fit: [120, 80] });
-   } catch (error) {
-     console.warn('No se pudo renderizar el logo en el PDF del reporte:', error.message);
-   }
-  }
-
-  doc.fontSize(16).text(settings.company_legal_name || settings.company_name || 'Mi Empresa', { align: 'left' });
-  doc.fontSize(10).text(`NIT: ${settings.company_nit || 'N/A'} | Tel: ${settings.company_phone || 'N/A'}`);
-  doc.moveDown();
-  doc.fontSize(18).text(title, { align: 'center' });
-  doc.fontSize(10).text(`Período: ${periodStart || 'N/A'} al ${periodEnd || 'N/A'}`, { align: 'center' });
-  doc.moveDown();
 }
 
 function ensureDateRange(startValue, endValue, fallbackMonth) {
@@ -582,44 +561,14 @@ app.get('/api/reports/monthly-close/pdf', authenticateRequired, (req, res) => {
   const sales = db.prepare(`SELECT COALESCE(SUM(total),0) as total, COALESCE(SUM(tax),0) as tax, COUNT(*) as count FROM sales WHERE date(created_at) BETWEEN date(?) AND date(?)`).get(monthStart, monthEnd);
   const purchases = db.prepare(`SELECT COALESCE(SUM(total),0) as total, COUNT(*) as count FROM purchases WHERE date(fecha) BETWEEN date(?) AND date(?)`).get(monthStart, monthEnd);
   const expenses = db.prepare(`SELECT COALESCE(SUM(total),0) as total, COUNT(*) as count FROM expenses WHERE date(fecha) BETWEEN date(?) AND date(?)`).get(monthStart, monthEnd);
-  const inventory = db.prepare(`SELECT COUNT(*) as items, COALESCE(SUM(stock),0) as stock, COALESCE(SUM(CASE WHEN stock < 0 THEN stock ELSE 0 END),0) as negative_stock, COALESCE(SUM(CASE WHEN stock > 0 THEN stock ELSE 0 END),0) as positive_stock FROM products`).get();
   const salesByDay = db.prepare(`SELECT date(created_at) as day, COALESCE(SUM(total),0) as total FROM sales WHERE date(created_at) BETWEEN date(?) AND date(?) GROUP BY date(created_at) ORDER BY date(created_at) ASC`).all(monthStart, monthEnd);
 
-  const doc = new PDFDocument({ size: 'A4', margin: 50 });
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', 'attachment; filename="cierre-mensual.pdf"');
-  doc.pipe(res);
-
-  buildPdfHeader(doc, 'Cierre de Mes', monthStart, monthEnd);
-
-  doc.fontSize(12).font('Helvetica-Bold').text('Resumen', { underline: true });
-  doc.moveDown(0.3);
-  doc.font('Helvetica');
-  doc.text(`Ventas totales: ${Number(sales.total || 0).toFixed(2)}`);
-  doc.text(`IVA cobrados: ${Number(sales.tax || 0).toFixed(2)}`);
-  doc.text(`Compras: ${Number(purchases.total || 0).toFixed(2)}`);
-  doc.text(`Gastos: ${Number(expenses.total || 0).toFixed(2)}`);
-  doc.text(`Inventario (valor): ${Number(inventory.stock || 0).toFixed(2)}`);
-  doc.text(`Stock positivo (unidades): ${Number(inventory.positive_stock || 0).toFixed(2)}`);
-  doc.text(`Stock negativo (unidades): ${Math.abs(Number(inventory.negative_stock || 0)).toFixed(2)}`);
-
-  doc.moveDown(0.5);
-  doc.font('Helvetica-Bold').text('Resultado neto: ', { continued: true });
-  doc.font('Helvetica').text(`${(Number(sales.total || 0) - Number(purchases.total || 0) - Number(expenses.total || 0)).toFixed(2)}`);
-
-  doc.moveDown(1);
-  doc.font('Helvetica-Bold').text('Ventas por día', { underline: true });
-  doc.moveDown(0.3);
-
-  if (salesByDay && salesByDay.length) {
-    salesByDay.forEach((d) => {
-      doc.font('Helvetica').text(`${d.day} — ${Number(d.total || 0).toFixed(2)}`);
-    });
-  } else {
-    doc.font('Helvetica').text('No hay ventas en este período.');
-  }
-
-  doc.end();
+  const profile=buildCompanyProfile(),money=n=>new Intl.NumberFormat(profile.number_locale,{style:'currency',currency:profile.currency_code}).format(Number(n||0));
+  const doc=reportDocument(profile,'Cierre de mes',`${monthStart} al ${monthEnd}`,[
+    {title:'Resumen del período',columns:[{label:'Concepto',weight:3},{label:'Importe',weight:2,align:'right'}],rows:[['Ventas totales',money(sales.total)],['Impuesto de ventas registrado',money(sales.tax)],['Compras',money(purchases.total)],['Gastos',money(expenses.total)],['Resultado neto de entradas y salidas',money(sales.total-purchases.total-expenses.total)]]},
+    {title:'Ventas por día',columns:[{label:'Fecha',weight:3},{label:'Total cobrado',weight:2,align:'right'}],rows:salesByDay.map(d=>[d.day,money(d.total)])}
+  ],{note:'Resumen interno del período seleccionado. Los totales de ventas ya incluyen el impuesto registrado; no se agrega nuevamente.'});
+  res.type('pdf').set('Content-Disposition','attachment; filename="cierre-mensual.pdf"');doc.on('error',()=>res.destroy());doc.pipe(res);doc.end();
 });
 
 app.get('/api/reports/vat-book/pdf', authenticateRequired, (req, res) => {
@@ -628,85 +577,25 @@ app.get('/api/reports/vat-book/pdf', authenticateRequired, (req, res) => {
   const creditoFiscal = rows.filter((row) => String(row.tipo_receptor || '').toLowerCase() === 'credito_fiscal');
   const consumidorFinal = rows.filter((row) => String(row.tipo_receptor || '').toLowerCase() === 'consumidor_final');
 
-  const doc = new PDFDocument({ size: 'A4', margin: 50 });
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', 'attachment; filename="libro-iva.pdf"');
-  doc.pipe(res);
-
-  buildPdfHeader(doc, 'Libro de IVA', range.start, range.end);
-
-  const writeTable = (items, title) => {
-    doc.moveDown(0.5);
-    doc.fontSize(13).font('Helvetica-Bold').text(title, { underline: true });
-    doc.moveDown(0.2);
-    if (!items.length) {
-      doc.font('Helvetica').fontSize(11).text('No hay registros.');
-      return;
-    }
-
-    // Header row
-    const leftX = doc.x;
-    doc.fontSize(10).font('Helvetica-Bold');
-    doc.text('Fecha', leftX, doc.y);
-    doc.text('Número', leftX + 90, doc.y);
-    doc.text('Cliente', leftX + 190, doc.y);
-    doc.text('NIT', leftX + 360, doc.y);
-    doc.text('Base', leftX + 440, doc.y, { width: 70, align: 'right' });
-    doc.text('IVA', leftX + 520, doc.y, { width: 60, align: 'right' });
-    doc.text('Total', leftX + 590, doc.y, { width: 70, align: 'right' });
-    doc.moveDown(0.3);
-    doc.font('Helvetica');
-
-    items.forEach((r) => {
-      doc.text(r.fecha || '', leftX, doc.y);
-      doc.text(r.numero || '', leftX + 90, doc.y);
-      doc.text((r.cliente_nombre || 'Cliente').slice(0, 30), leftX + 190, doc.y);
-      doc.text(r.cliente_nit || 'CF', leftX + 360, doc.y);
-      doc.text(Number(r.base_imponible || 0).toFixed(2), leftX + 440, doc.y, { width: 70, align: 'right' });
-      doc.text(Number(r.iva || 0).toFixed(2), leftX + 520, doc.y, { width: 60, align: 'right' });
-      doc.text(Number(r.total || 0).toFixed(2), leftX + 590, doc.y, { width: 70, align: 'right' });
-      doc.moveDown(0.3);
-      if (doc.y > doc.page.height - 100) doc.addPage();
-    });
-
-    const totalBase = items.reduce((sum, row) => sum + Number(row.base_imponible || 0), 0);
-    const totalIva = items.reduce((sum, row) => sum + Number(row.iva || 0), 0);
-    const totalGeneral = items.reduce((sum, row) => sum + Number(row.total || 0), 0);
-
-    doc.moveDown(0.4);
-    doc.font('Helvetica-Bold').text(`Totales: Base ${totalBase.toFixed(2)}  IVA ${totalIva.toFixed(2)}  Total ${totalGeneral.toFixed(2)}`);
-  };
-
-  writeTable(creditoFiscal, 'Crédito Fiscal');
-  writeTable(consumidorFinal, 'Consumidor Final');
-
-  if (rows.length === 0) {
-    doc.moveDown();
-    doc.font('Helvetica').text('No hay registros de IVA en este rango.');
-  }
-  doc.end();
+  const profile=buildCompanyProfile(),money=n=>new Intl.NumberFormat(profile.number_locale,{style:'currency',currency:profile.currency_code}).format(Number(n||0));
+  const sections=[[creditoFiscal,'Crédito fiscal interno'],[consumidorFinal,'Consumidor final interno']].map(([items,title])=>({title,
+    columns:[{label:'Fecha',weight:12},{label:'Número',weight:19},{label:'Cliente',weight:23},{label:'Documento',weight:16},{label:'Base',weight:10,align:'right'},{label:'Impuesto',weight:10,align:'right'},{label:'Total',weight:10,align:'right'}],
+    rows:items.map(r=>[r.fecha,r.numero,r.cliente_nombre||'Cliente',r.cliente_nit||'CF',money(r.base_imponible),money(r.iva),money(r.total)]),
+    footer:`Totales: Base ${money(items.reduce((n,r)=>n+Number(r.base_imponible||0),0))} | Impuesto ${money(items.reduce((n,r)=>n+Number(r.iva||0),0))} | Total ${money(items.reduce((n,r)=>n+Number(r.total||0),0))}`
+  }));
+  const doc=reportDocument(profile,'Libro de IVA - registro interno',`${range.start} al ${range.end}`,sections,{landscape:true,note:'Importes históricos registrados. Este reporte interno no acredita autorización fiscal de los comprobantes.'});
+  res.type('pdf').set('Content-Disposition','attachment; filename="libro-iva.pdf"');doc.on('error',()=>res.destroy());doc.pipe(res);doc.end();
 });
 
 app.get('/api/reports/inventory/pdf', authenticateRequired, (req, res) => {
   const range = ensureDateRange(req.query.start, req.query.end, undefined);
   const products = db.prepare(`SELECT * FROM products ORDER BY name ASC`).all();
-  const doc = new PDFDocument({ size: 'A4', margin: 50 });
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', 'attachment; filename="inventario.pdf"');
-  doc.on('error',()=>res.destroy());doc.pipe(res);
-  buildPdfHeader(doc, 'Inventario actual', range.start, range.end);
-  doc.fontSize(10).text('Existencias al generar este documento. Los servicios no controlan existencias.').moveDown();
-  for(const p of products){
-    if(doc.y>doc.page.height-140)doc.addPage();
-    doc.font('Helvetica-Bold').fontSize(11).text(`${p.code || '#'+p.id} · ${p.name}`);
-    doc.font('Helvetica').fontSize(10).text(`${p.category} · ${p.type} · Unidad: ${p.unit}`);
-    doc.text(`Precio: $${p.price.toFixed(2)} · Costo unitario: $${p.cost.toFixed(2)}`);
-    if(p.type!=='servicio')doc.text(`Existencias: ${p.stock} · Mínimo: ${p.min_stock}${p.stock<=p.min_stock?' · ALERTA: existencias bajas':''}`);
-    doc.moveDown(.5);
-  }
-  if(!products.length)doc.text('No hay artículos registrados.');
-
-  doc.end();
+  const profile=buildCompanyProfile(),money=n=>new Intl.NumberFormat(profile.number_locale,{style:'currency',currency:profile.currency_code}).format(Number(n||0));
+  const doc=reportDocument(profile,'Inventario actual','Existencias al '+new Date().toISOString().slice(0,10),[{
+    columns:[{label:'Código',weight:13},{label:'Artículo',weight:34},{label:'Precio final',weight:16,align:'right'},{label:'Costo s/IVA',weight:16,align:'right'},{label:'Existencias',weight:21}],
+    rows:products.map(p=>[p.code||'#'+p.id,`${p.name}\n${p.category}`,money(p.price),money(p.cost),p.type==='servicio'?'Sin control':`${p.stock} ${p.unit}\nMínimo: ${p.min_stock}${p.stock<=p.min_stock?' - BAJO':''}`])
+  }],{note:'Los precios de venta incluyen IVA: ingrésalos con el impuesto agregado. Los costos se muestran sin IVA. Las existencias corresponden al momento de generar el reporte.'});
+  res.type('pdf').set('Content-Disposition','attachment; filename="inventario.pdf"');doc.on('error',()=>res.destroy());doc.pipe(res);doc.end();
 });
 
 app.get('/api/invoices/:saleId/xml', (req, res) => {
