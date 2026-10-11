@@ -25,7 +25,7 @@ Pulsa **Minimizar menú (☰)** para dejar solo los iconos en escritorio. El mis
 
 Los accesos rápidos abren **Nueva venta**, **Inventario** y **Registrar cliente**, conservando el carrito. Administrador y gerente acceden al inventario administrativo. Cajero y mesero abren la consulta de inventario dentro de Ventas, sin permisos de edición. Cocina no recibe accesos de venta. El resumen financiero solo se muestra a administrador, gerente, cajero y contador; mesero y cocina conservan las restricciones del servidor.
 
-En **Caja → Venta → Inventario**, escribe una cantidad y pulsa **Agregar a cuenta**. Se valida la unidad y que las existencias cubran lo que ya está en el carrito más lo agregado. Agotados y operaciones pendientes bloquean la acción. Los servicios no consumen existencias. Solo el cobro confirmado descuenta inventario; **Documentos → Inventario** conserva la administración habitual, sin botones para añadir a una venta.
+En **Caja → Venta → Inventario** se abre una ventana flotante. Escribe una cantidad y pulsa **Agregar a cuenta**. Se valida la unidad y que las existencias cubran lo que ya está en el carrito más lo agregado. Agotados y operaciones pendientes bloquean la acción. Los servicios no consumen existencias. Solo el cobro confirmado descuenta inventario; **Documentos → Inventario** conserva la administración habitual, sin botones para añadir a una venta.
 
 ## Facturación y búsqueda rápida
 
@@ -36,10 +36,10 @@ El buscador **Consultar producto y existencias** se despliega al pulsar su títu
 La pantalla de venta usa una tabla amplia, inspirada en la referencia de caja:
 
 1. La barra superior abre Órdenes, Mesas, Gastos, Clientes, Ventas, Cotizaciones, Inventario y Turno, según permisos y módulos activos.
-2. La cabecera muestra documento, cliente, pago, recibido y correo. **Datos** despliega búsqueda de clientes registrados, identificación, dirección y demás datos. También se despliega al seleccionar Crédito fiscal interno.
+2. La cabecera muestra documento, resumen del cliente, pago y monto recibido. **Agregar cliente** y **Editar cliente** abren una ventana con nombre, correo, identificación, dirección y demás datos. **Clientes registrados** abre otra ventana para buscar, seleccionar o editar clientes guardados. El editor también se abre al seleccionar Crédito fiscal interno.
 3. En **Código o descripción del producto**, escribe o escanea un código o selecciona una sugerencia. Revisa unidad, existencias y precio; indica cantidad y pulsa **Agregar** o Enter. Las cantidades fraccionarias se admiten solo para unidades que las permiten. Si ya está en la tabla, la cantidad se suma sin exceder existencias.
 4. La tabla muestra código, descripción, cantidad, unidad, precio, importe antes del descuento general, tipo y existencias. Cambia cantidades, elimina partidas o ajusta precios con permiso de administrador/gerente. El descuento general, impuesto y total aparecen arriba del detalle.
-5. Debajo están las opciones de impresión/correo y los botones Cobrar, Guardar cotización y Enviar a cocina. **Inventario para agregar a la cuenta** ofrece una tabla con búsqueda, categoría, precio, existencias, cantidad en cuenta y cantidad a agregar. También se abre con el botón Inventario de la barra de Ventas.
+5. Debajo están las opciones de impresión/correo y los botones Cobrar, Guardar cotización y Enviar a cocina. El botón **Inventario** de la barra de Ventas abre una ventana con búsqueda, categoría, precio, existencias, cantidad en cuenta y cantidad a agregar; esa tabla ya no ocupa la parte inferior de Ventas.
 
 En teléfono, los campos se acomodan y la tabla se desplaza horizontalmente. La cabecera no inventa un número de factura: se asigna al confirmar el cobro en el servidor. La pantalla no añade bodegas múltiples ni hojas de despacho, que no son funciones activas del sistema.
 
@@ -51,6 +51,17 @@ Antes del cobro elige:
 - **Enviar PDF y JSON al correo del cliente:** activado inicialmente, se puede desmarcar para esa venta. Requiere un correo válido y SMTP configurado en el negocio.
 
 Después de una venta confirmada se limpian los datos del cliente para evitar enviar el siguiente comprobante al destinatario anterior. La confirmación conserva los botones del documento emitido. Si el navegador bloquea la ventana o descarga, la venta sigue registrada: usa los botones del comprobante, sin cobrar otra vez.
+
+## Ventanas de inventario y clientes
+
+- **Venta → Inventario:** consulta existencias y agrega artículos a la cuenta desde la ventana. Ciérrala con **×** o **Escape** para volver al cobro; el carrito se conserva.
+- **Documentos → Inventario → Nuevo artículo / Editar:** el formulario de producto se abre flotante. Ingresa el precio final **con IVA incluido** y guarda. Los permisos siguen siendo de administrador o gerente.
+- **Entrada de inventario:** registra una recepción en su propia ventana; el servidor confirma el movimiento antes de cerrarla.
+- **Conteo físico:** abre una ventana sin cambiar de pestaña. Selecciona el producto, escribe la cantidad contada y, si deseas ajustar existencias, marca la opción y explica el motivo. La sincronización conserva el borrador y las existencias capturadas al iniciar. Si otra caja cambia ese stock, se rechaza el conteo: cierra y vuelve a abrir para revisar una referencia actualizada.
+- **Agregar cliente / Editar cliente:** los campos solo aparecen en la ventana. **Guardar cliente** registra o actualiza al cliente y lo selecciona para la venta. **Usar en esta venta** conserva los datos para el comprobante sin registrar un cliente nuevo. Cerrar el editor conserva lo escrito para la venta actual.
+- **Clientes registrados:** busca por nombre, documento, teléfono o correo. **Usar en venta** selecciona al cliente y cierra la ventana; **Editar** abre sus datos. **Usar cliente general** limpia la selección y sus datos.
+
+Las ventanas se adaptan al teléfono, tienen desplazamiento interno y mantienen el foco del teclado dentro de ellas. **×** o **Escape** permiten volver a la pantalla anterior. Cambiar de sección, cerrar sesión o cambiar de negocio cierra las ventanas. Los datos de cliente se limpian después del cobro, al cerrar sesión y al cambiar de negocio.
 
 ## Cambiar el tipo de negocio
 

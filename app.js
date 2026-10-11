@@ -512,6 +512,8 @@ function getCustomerPayloadFromForm() {
 }
 
 async function saveCustomerFromForm() {
+  if(operationLocked()||!availableModules().includes('pos'))return;
+  const saveButton=document.getElementById('save-customer-btn');if(saveButton.disabled)return;
   const nameField = document.getElementById('billing-customer-name') || document.getElementById('customer-name');
   const nitField = document.getElementById('billing-customer-nit') || document.getElementById('customer-nit');
   const emailField = document.getElementById('billing-customer-email') || document.getElementById('customer-email');
@@ -542,6 +544,7 @@ async function saveCustomerFromForm() {
     return;
   }
 
+  saveButton.disabled=true;
   try {
     const customerId = document.getElementById('customer-select')?.value;
     const method = customerId ? 'PUT' : 'POST';
@@ -574,11 +577,11 @@ async function saveCustomerFromForm() {
         select.value = String(customer.id);
       }
       alert('Cliente guardado correctamente.');
-      await loadCustomers(String(customer.id));
+      await loadCustomers(String(customer.id));updateCustomerSummary();closeFloating('billing-more');
     }
   } catch (error) {
     alert(error.message || 'No se pudo guardar el cliente.');
-  }
+  } finally {saveButton.disabled=false;}
 }
 
 function updateMiniTicketTotals() {
@@ -597,6 +600,7 @@ function openBillingModal(action = 'payment') {
     return;
   }
 
+  closeAllFloating(false);
   const totals = getCartTotals();
   const modal = document.getElementById('billing-modal');
   modal.classList.remove('customer-only');
@@ -779,6 +783,7 @@ function setActiveModule(moduleId) {
   const allowed=availableModules();
   if(!allowed.includes(moduleId))moduleId=allowed.includes(activeModule)?activeModule:allowed[0];
   if(!moduleId){renderNav();return;}
+  if(activeModule!==moduleId)closeAllFloating(false);
   activeModule=moduleId;
   renderSaleWorkspace();
 
@@ -1001,6 +1006,7 @@ function renderInventory() { renderExtendedInventory(); }
 
 let productEditStock=null,productEditVersion=null;
 function openProductForm(productId = null) {
+  if(!canEditInventory())return;
   const formPanel = document.getElementById('product-form-panel');
   const form = document.getElementById('product-form');
   const formTitle = document.getElementById('form-title');
@@ -1025,10 +1031,11 @@ function openProductForm(productId = null) {
     formTitle.textContent = 'Agregar producto';productEditStock=null;productEditVersion=null;
     document.getElementById('product-type').value=state.companySettings.default_product_type||'producto';
   }
-  updateProductTypeFields();
+  updateProductTypeFields();openFloating('product-editor-dialog','product-name');
 }
 
 function closeProductForm() {
+  closeFloating('product-editor-dialog');
   document.getElementById('product-form-panel').classList.add('hidden');
   document.getElementById('product-form').reset();
 }
@@ -1188,18 +1195,7 @@ function renderReports() {
               <textarea id="expense-notes" placeholder="Notas"></textarea>
               <button type="submit" class="ghost-btn small">Guardar gasto</button>
             </form>
-            <form id="inventory-check-form" class="mini-form">
-              <h5>Verificación inventario</h5>
-              <select id="inventory-check-product">
-                ${state.products.map((product) => `<option value="${product.id}">${escapeHtml(product.name)}</option>`).join('') || '<option value="">Sin productos</option>'}
-              </select>
-              <input id="inventory-check-date" type="date" />
-              <input id="inventory-check-expected" type="number" placeholder="Esperado" readonly />
-              <input id="inventory-check-counted" step="0.001" type="number" placeholder="Contado" />
-              <textarea id="inventory-check-notes" placeholder="Motivo del ajuste / notas"></textarea>
-              <label><input id="inventory-check-adjust" type="checkbox" /> Ajustar existencias al conteo (requiere motivo)</label>
-              <button type="submit" class="ghost-btn small">Guardar conteo</button>
-            </form>
+            <button type="button" id="report-open-count" class="ghost-btn small">Abrir conteo de inventario</button>
           </div>
         </div>
       `;
@@ -1297,7 +1293,6 @@ function bindReportControls() {
   const purchaseProductForm = document.getElementById('purchase-product-form');
   const purchaseForm = document.getElementById('purchase-form');
   const expenseForm = document.getElementById('expense-form');
-  const inventoryCheckForm = document.getElementById('inventory-check-form');
 
   if (refreshBtn) refreshBtn.onclick = refreshMonthSummary;
   if (closeMonthBtn) closeMonthBtn.onclick = closeCurrentMonth;
@@ -1393,38 +1388,8 @@ function bindReportControls() {
     };
   }
 
-  if (inventoryCheckForm) {
-    const selector=document.getElementById('inventory-check-product');
-    selector.onchange=()=>{document.getElementById('inventory-check-expected').value=state.products.find(p=>p.id===Number(selector.value))?.stock ?? '';};
-    selector.onchange();
-    inventoryCheckForm.onsubmit = async (event) => {
-      event.preventDefault();
-      const productId = document.getElementById('inventory-check-product').value;
-      const payload = {
-        product_id: Number(productId),
-        fecha: document.getElementById('inventory-check-date').value || new Date().toISOString().slice(0, 10),
-        expected_qty: Number(document.getElementById('inventory-check-expected').value || 0),
-        counted_qty: Number(document.getElementById('inventory-check-counted').value || 0),
-        notes: document.getElementById('inventory-check-notes').value,
-        adjustStock: document.getElementById('inventory-check-adjust').checked
-      };
-      try {
-        const res = await posFetch(`${API_BASE}/inventory/check`, {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          body: JSON.stringify(payload)
-        });
-        const result=await res.json();
-        if (!res.ok) throw new Error(result.error || 'No se pudo guardar el conteo');
-        await syncFromServer();
-        inventoryCheckForm.reset();
-        selector.onchange();
-        alert('Conteo de inventario guardado.');
-      } catch (error) {
-        alert(error.message);
-      }
-    };
-  }
+  const countButton=document.getElementById('report-open-count');if(countButton){countButton.classList.toggle('hidden',!canEditInventory());countButton.onclick=openInventoryCount;}
+
 }
 
 async function refreshMonthSummary() {
@@ -1838,49 +1803,7 @@ function initializeApp() {
   document.querySelectorAll('[data-close-modal="true"]').forEach((element) => {
     element.addEventListener('click', closeBillingModal);
   });
-  const customerSelectEl = document.getElementById('customer-select');
-  if (customerSelectEl) {
-    customerSelectEl.addEventListener('change', async () => {
-      if(operationLocked())return;
-      const customerId = customerSelectEl.value;
-      const setField = (id, value) => {
-        const target = document.getElementById(id);
-        if (target) target.value = value || '';
-      };
-      if (!customerId) {
-        setField('billing-customer-name', '');
-        setField('billing-customer-nit', '');
-        setField('billing-customer-email', '');
-        setField('billing-customer-phone', '');
-        setField('billing-customer-address', '');
-        setField('billing-customer-department', '');
-        setField('billing-customer-municipality', '');
-        setField('billing-customer-giro', '');
-        setField('billing-customer-notes', '');
-        setField('billing-customer-type', 'consumidor_final');
-        return;
-      }
-      try {
-        const res = await posFetch(`${API_BASE}/customers/${customerId}`, { headers: getAuthHeaders(null) });
-        if (!res.ok) return;
-        const data = await res.json();
-        const customer = data.customer || {};
-        if(customerSelectEl.value!==customerId)return;
-        setField('billing-customer-name', customer.full_name || '');
-        setField('billing-customer-nit', customer.nit || '');
-        setField('billing-customer-email', customer.email || '');
-        setField('billing-customer-phone', customer.phone || '');
-        setField('billing-customer-address', customer.address || '');
-        setField('billing-customer-department', customer.department || '');
-        setField('billing-customer-municipality', customer.municipality || '');
-        setField('billing-customer-giro', customer.giro || '');
-        setField('billing-customer-notes', customer.notes || '');
-        setField('billing-customer-type', customer.document_type || 'consumidor_final');
-      } catch (error) {
-        console.warn('No se pudo cargar el cliente seleccionado:', error.message);
-      }
-    });
-  }
+  document.getElementById('customer-select').addEventListener('change',()=>selectRegisteredCustomer(document.getElementById('customer-select').value));
   const sendKitchenBtnEl = document.getElementById('send-kitchen-btn');
   if (sendKitchenBtnEl) sendKitchenBtnEl.addEventListener('click', () => openBillingModal('kitchen'));
   const openKitchenDisplayBtn = document.getElementById('open-kitchen-display-btn');

@@ -115,7 +115,7 @@
             <button type="button" data-sale-target="orders">Ver órdenes</button>
             <button type="button" data-sale-target="tables">Mesas</button>
             <button type="button" data-sale-target="reports" data-sale-section="expense-form" class="expense-shortcut">Registrar gasto</button>
-            <button type="button" id="billing-new-customer-btn">Agregar cliente</button>
+            <button type="button" id="billing-new-customer-btn">Agregar cliente</button><button type="button" id="customer-directory-btn">Clientes registrados</button>
             <button type="button" data-sale-target="documents">Ver ventas</button>
             <button type="button" data-sale-target="documents" data-sale-section="documents-quotes-content" id="sale-quotes-shortcut">Ver cotizaciones</button>
             <button type="button" id="sale-inventory-btn" aria-controls="sale-catalog" aria-expanded="false">Inventario</button>
@@ -768,6 +768,24 @@
      </div>
    </div>
 
+
+    <dialog id="inventory-count-dialog" class="floating-dialog" aria-labelledby="count-dialog-title">
+      <header class="floating-header"><h3 id="count-dialog-title">Conteo físico de inventario</h3><button type="button" class="icon-close" data-close-floating aria-label="Cerrar conteo">×</button></header>
+      <div class="floating-body"><form id="inventory-check-form" class="count-form">
+        <label for="inventory-check-product">Producto</label><select id="inventory-check-product" required></select>
+        <label for="inventory-check-date">Fecha</label><input id="inventory-check-date" type="date" required />
+        <label for="inventory-check-expected">Existencias al iniciar el conteo</label><input id="inventory-check-expected" type="number" readonly />
+        <label for="inventory-check-counted">Cantidad contada</label><input id="inventory-check-counted" type="number" step="0.001" min="0" required />
+        <label for="inventory-check-notes">Motivo / observaciones</label><textarea id="inventory-check-notes"></textarea>
+        <label class="checkbox-label"><input id="inventory-check-adjust" type="checkbox" /> Ajustar existencias al conteo (requiere motivo)</label>
+        <p>Si las existencias cambian mientras cuentas, el servidor rechazará el ajuste. Reabre el conteo para revisar los datos actuales.</p>
+        <div class="floating-actions"><button type="submit" class="primary-btn">Guardar conteo</button><button type="button" class="ghost-btn" data-close-floating>Cerrar</button></div>
+      </form></div>
+    </dialog>
+    <dialog id="customer-directory-dialog" class="floating-dialog floating-wide" aria-labelledby="customer-directory-title">
+      <header class="floating-header"><h3 id="customer-directory-title">Clientes registrados</h3><button type="button" class="icon-close" data-close-floating aria-label="Cerrar clientes registrados">×</button></header>
+      <div class="floating-body"><div id="customer-directory-search"></div><p id="customer-directory-status" role="status"></p><div class="table-wrap" tabindex="0" aria-label="Clientes registrados"><table><thead><tr><th>Cliente</th><th>Documento</th><th>Teléfono</th><th>Correo</th><th>Acciones</th></tr></thead><tbody id="customer-directory-body"></tbody></table></div><div class="floating-actions"><button id="directory-new-customer" type="button" class="primary-btn">Registrar cliente</button><button id="directory-general-customer" type="button" class="ghost-btn">Usar cliente general</button></div></div>
+    </dialog>
     <script src="app_utils.js"></script>
     <script src="pos-math.js"></script>
     <script src="enhancements.js"></script>

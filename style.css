@@ -2654,3 +2654,32 @@ button:disabled {
 #module-home.active{display:flex;flex-direction:column;gap:16px}.home-quick-links button{margin:0}.sale-catalog .catalog-tools select{width:auto;min-width:150px;max-width:100%}.sale-catalog .catalog-tools input{width:auto}
 
 .tax-price-note{padding:12px 14px;background:#eff6ff;border:1px solid #bfd8f1;border-radius:8px;color:#174572;font-size:13px;grid-column:1/-1}
+
+/* Floating task windows */
+body.has-floating-dialog{overflow:hidden}
+dialog.floating-dialog{margin:auto;padding:0;border:1px solid #cbd5e1;border-radius:16px;width:min(760px,calc(100vw - 32px));max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);color:#172b4d;background:#fff;box-shadow:0 24px 80px #10243b55;overflow:auto}
+dialog.floating-dialog:not([open]){display:none}
+dialog.floating-wide{width:min(1120px,calc(100vw - 32px))}
+dialog.floating-dialog::backdrop{background:#14243c99;backdrop-filter:blur(2px)}
+.floating-header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 22px;border-bottom:1px solid #dce4ee;background:#f4f7fb;position:sticky;top:0;z-index:2}
+.floating-header h3{margin:0;font-size:1.15rem}
+.floating-header .icon-close{border:0;background:transparent;font-size:28px;line-height:1;min-width:40px;min-height:40px;cursor:pointer;color:inherit}
+.floating-body{padding:22px;min-width:0}
+.floating-body .panel{margin:0;box-shadow:none;border:0;padding:0}
+.floating-body .billing-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.floating-body .client-name-controls{display:block}
+.floating-actions,.floating-row-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.floating-actions{margin-top:20px}
+.floating-body .count-form{display:grid;gap:10px}
+.floating-body .table-wrap{max-height:52dvh;overflow:auto}
+.floating-body .catalog-tools{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.floating-body .catalog-tools input{flex:1;min-width:180px}
+.floating-body input,.floating-body select,.floating-body textarea{max-width:100%;box-sizing:border-box}
+#customer-directory-search input{width:100%}
+.sale-main-fields{grid-template-columns:1fr 1.6fr 1fr 1fr}
+.sale-customer-summary strong,.sale-customer-summary small{overflow-wrap:anywhere}
+.sale-customer-summary button{align-self:start}
+.inventory-layout{grid-template-columns:minmax(0,1fr)}
+@media(max-width:700px){dialog.floating-dialog,dialog.floating-wide{width:calc(100vw - 16px);max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);border-radius:12px}.floating-header,.floating-body{padding:14px}.floating-body .billing-fields{grid-template-columns:1fr}.sale-main-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.floating-actions>button{flex:1}.floating-body .table-wrap{max-height:48dvh}}
+
+.floating-body .catalog-tools select{width:auto;flex:0 1 220px}

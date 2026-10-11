@@ -1,3 +1,12 @@
+## Ventanas flotantes de ventas, inventario y clientes
+
+- Inventario de venta en una ventana con búsqueda, cantidades y agregado al carrito.
+- Formularios flotantes de producto, entrada de inventario y conteo físico.
+- Registro y edición de clientes fuera del formulario principal de Ventas; directorio flotante con búsqueda, selección y edición.
+- Cierre con Escape, foco de teclado, diseño móvil y cierre al cambiar de sección o sesión.
+- Conteos conservan su borrador y referencia de existencias durante la sincronización; los conflictos siguen validados por el servidor.
+- Pruebas DOM/HTTP y navegador ampliadas para formularios, permisos y navegación.
+
 # Correcciones verificadas
 ## Precios finales con IVA y PDF profesionales
 

@@ -32,7 +32,8 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  assert.equal(w.document.getElementById('billing-more').open,false);
  w.document.querySelector('[data-sale-target="reports"]').click();assert.equal(w.eval('activeModule'),'reports');assert.ok(w.document.getElementById('expense-form'));w.setActiveModule('pos');
 
- assert.ok(w.document.getElementById('sale-billing-panel').contains(w.document.getElementById('billing-customer-email')));
+ assert.equal(w.document.getElementById('sale-billing-panel').contains(w.document.getElementById('billing-customer-email')),false);assert.equal(w.document.getElementById('billing-customer-email').closest('dialog').id,'billing-more');
+ for(const id of ['sale-catalog','billing-more','product-editor-dialog','receive-stock-dialog','inventory-count-dialog','customer-directory-dialog']){assert.equal(w.document.getElementById(id).tagName,'DIALOG');assert.equal(w.document.getElementById(id).parentElement,w.document.body);}
  assert.ok(w.document.getElementById('sale-billing-panel').contains(w.document.getElementById('billing-payment-method')));
  assert.ok(w.document.getElementById('sale-billing-panel').compareDocumentPosition(w.document.querySelector('.pos-grid')) & w.Node.DOCUMENT_POSITION_FOLLOWING);
  const stockSearch=w.document.getElementById('system-product-search');stockSearch.value='cafe';stockSearch.dispatchEvent(new w.Event('input'));
@@ -57,7 +58,7 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  await w.processSale();assert.equal(w.eval('pendingSale'),null);assert.equal(w.eval('state.sales.length'),2);await v.syncFromServer();assert.equal(v.eval('state.sales.length'),2);assert.equal(v.eval('state.products[0].stock'),3);assert.match(w.document.getElementById('sale-document-confirmation').textContent,/Permite ventanas emergentes/);
  w.openUserForm();w.document.getElementById('user-form-name').value='Prueba UI';w.document.getElementById('user-pin').value='654321';w.document.getElementById('user-role-input').value='cajero';await w.handleUserSubmit({preventDefault(){}});assert.equal(w.eval("state.employees.some(u=>u.name==='Prueba UI')"),true);
  // Adapted UI: SKU lookup, fractional quantity, customer directory, quotes and receiving.
- w.setActiveModule('inventory');w.openProductForm();
+ w.setActiveModule('inventory');w.openProductForm();assert.equal(w.document.getElementById('product-editor-dialog').open,true);
  const fields={'product-name':'Granel UI','product-category':'Prueba','product-code':'UI-001','product-unit':'kg','product-cost':'1','product-price':'2.5','product-stock':'1','product-min-stock':'.5'};
  for(const [id,value] of Object.entries(fields))w.document.getElementById(id).value=value;
  await w.handleProductSubmit({preventDefault(){}});
@@ -81,6 +82,17 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  w.document.getElementById('billing-customer-name').value='<img src=x onerror=alert(1)>';
  w.document.getElementById('billing-customer-email').value='cliente@example.test';
  await w.saveCustomerFromForm();w.closeBillingModal();assert.equal(w.document.querySelectorAll('#customer-select img').length,0);
+ assert.equal(w.document.getElementById('billing-more').open,false);await w.openCustomerDirectory();assert.equal(w.document.getElementById('customer-directory-dialog').open,true);assert.equal(w.document.querySelectorAll('#customer-directory-body img').length,0);
+ const savedCustomer=w.document.getElementById('customer-select').value;assert.ok(savedCustomer);await w.selectRegisteredCustomer(savedCustomer,{edit:true});assert.equal(w.document.getElementById('billing-more').open,true);assert.equal(w.document.getElementById('customer-directory-dialog').open,false);assert.equal(w.document.getElementById('billing-customer-email').value,'cliente@example.test');w.closeFloating('billing-more');
+ assert.equal(w.document.getElementById('sale-customer-summary').textContent,'<img src=x onerror=alert(1)>');
+ w.openInventoryCount();assert.equal(w.document.getElementById('inventory-count-dialog').open,true);w.document.getElementById('inventory-check-counted').value='3';w.document.getElementById('inventory-check-notes').value='Borrador conservado';await w.syncFromServer();assert.equal(w.document.getElementById('inventory-check-counted').value,'3');assert.equal(w.document.getElementById('inventory-check-notes').value,'Borrador conservado');assert.equal(w.document.getElementById('inventory-check-expected').value,'3');
+ await w.saveInventoryCount({preventDefault(){}});assert.equal(w.document.getElementById('inventory-count-dialog').open,false);assert.match(w.document.getElementById('inventory-checks-body').textContent,/Borrador conservado/);
+ // Another register changes stock while the count remains open. Sync must not silently rebase the count.
+ w.openInventoryCount();w.document.getElementById('inventory-check-counted').value='3';w.document.getElementById('inventory-check-notes').value='No sobrescribir';w.document.getElementById('inventory-check-adjust').checked=true;
+ await v.apiRequest('/inventory/check',{method:'POST',body:JSON.stringify({product_id:1,fecha:new Date().toISOString().slice(0,10),expected_qty:3,counted_qty:4,notes:'Cambio otra caja',adjustStock:true})});await w.syncFromServer();assert.equal(w.document.getElementById('inventory-check-expected').value,'3');await w.saveInventoryCount({preventDefault(){}});assert.equal(w.document.getElementById('inventory-count-dialog').open,true);assert.equal(w.eval('state.products[0].stock'),4);assert.equal(w.document.getElementById('inventory-check-notes').value,'No sobrescribir');
+ w.closeFloating('inventory-count-dialog');w.openInventoryCount();assert.equal(w.document.getElementById('inventory-check-expected').value,'4');w.document.getElementById('inventory-check-counted').value='3';w.document.getElementById('inventory-check-notes').value='Conteo actualizado';w.document.getElementById('inventory-check-adjust').checked=true;await w.saveInventoryCount({preventDefault(){}});assert.equal(w.eval('state.products[0].stock'),3);assert.equal(w.document.getElementById('inventory-count-dialog').open,false);
+
+
  loseOperation='/api/quotes';await w.saveQuoteFromCart();assert.equal(w.document.getElementById('operation-recovery-panel').classList.contains('hidden'),false);
  w.clearCart();await w.trackedOperation('quote','/quotes',null);await w.refreshDocuments();
  const quote=w.eval("documentDirectory.find(d=>d.kind==='quote')");assert.ok(quote);assert.equal(quote.total,1);assert.equal(w.eval('state.sales.length'),2);assert.equal(w.document.querySelectorAll('#documents-quotes-content img').length,0);
@@ -128,7 +140,7 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  // Home and its shortcuts respect real role permissions.
  const cashier=w.eval("state.employees.find(u=>u.name==='Prueba UI')");
  await v.logoutUser();v.document.getElementById('employee-select').value=String(cashier.id);v.document.getElementById('pin-input').value='654321';await v.loginUser();
- assert.equal(v.eval('currentEmployee.role'),'cajero');assert.equal(v.document.getElementById('sale-inventory-btn').classList.contains('hidden'),false);assert.equal(v.document.querySelector('[data-sale-target=reports]').classList.contains('hidden'),true);assert.deepEqual(navLabels(v),['Inicio','Caja','Documentos']);
+ assert.equal(v.eval('currentEmployee.role'),'cajero');v.openInventoryCount();v.openProductForm();assert.equal(v.document.getElementById('inventory-count-dialog').open,false);assert.equal(v.document.getElementById('product-editor-dialog').open,false);assert.equal(v.document.getElementById('sale-inventory-btn').classList.contains('hidden'),false);assert.equal(v.document.querySelector('[data-sale-target=reports]').classList.contains('hidden'),true);assert.deepEqual(navLabels(v),['Inicio','Caja','Documentos']);
  v.document.querySelector('[data-home-action=inventory]').click();assert.equal(v.eval('activeModule'),'pos');assert.equal(v.document.getElementById('sale-catalog').open,true);assert.equal(v.document.querySelector('[data-module=inventory]'),null);
  v.setActiveModule('settings');assert.notEqual(v.eval('activeModule'),'settings');assert.equal(v.document.getElementById('setting-business_type').disabled,true);
  await assert.rejects(v.apiRequest('/settings',{method:'PUT',body:JSON.stringify({business_type:'services'})}),error=>error.status===403);
