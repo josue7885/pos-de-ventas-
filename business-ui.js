@@ -14,13 +14,14 @@ function applyBusinessConfiguration(){
  for(const id of ['save-quote-btn','quotes-module-create-btn'])document.getElementById(id)?.classList.toggle('hidden',c.quotes_enabled===false);
  for(const id of ['send-kitchen-btn','open-kitchen-display-btn','open-customer-display-btn'])document.getElementById(id)?.classList.toggle('hidden',c.kitchen_enabled===false);
  document.getElementById('receive-stock-btn')?.classList.toggle('hidden',c.receiving_enabled===false);
- const select=document.getElementById('billing-payment-method'),previous=select.value,labels={efectivo:'Efectivo',tarjeta:'Tarjeta',transferencia:'Transferencia'},enabled=c.payment_methods||Object.keys(labels);select.replaceChildren(...enabled.map(m=>new Option(labels[m],m)));if(enabled.includes(previous))select.value=previous;
+ const select=document.getElementById('billing-payment-method'),previous=select.value,labels={efectivo:'Efectivo',tarjeta:'Tarjeta',transferencia:'Transferencia',credito:'Venta al crédito'},enabled=c.payment_methods||Object.keys(labels);select.replaceChildren(...enabled.map(m=>new Option(labels[m],m)));if(enabled.includes(previous))select.value=previous;
+ updateCreditCheckout();
  if(currentEmployee && !availableModules().includes(activeModule))setActiveModule('pos');
 }
 async function loadBusinessDirectory(){const data=await apiRequest('/businesses');businessDirectory=data.businesses;const select=document.getElementById('business-select');select.replaceChildren(...businessDirectory.map(b=>new Option(b.name,b.id)));select.value=getBusinessId();}
 async function switchBusiness(id){
  if(businessBusy)return;if(!businessDirectory.some(b=>b.id===id))return alert('Negocio no disponible');
- if(saleInFlight || pendingSale || ['quote','receive'].some(k=>currentEmployee && localStorage.getItem(`pos_operation:${operationScope()}:${currentEmployee.id}:${k}`))){document.getElementById('business-select').value=getBusinessId();return alert('Confirma primero las operaciones pendientes de este negocio.');}
+ if(saleInFlight || pendingSale || ['quote','receive','creditnote','creditpayment'].some(k=>currentEmployee && localStorage.getItem(`pos_operation:${operationScope()}:${currentEmployee.id}:${k}`))){document.getElementById('business-select').value=getBusinessId();return alert('Confirma primero las operaciones pendientes de este negocio.');}
  if(cart.length && !confirm('¿Cambiar de negocio y descartar el carrito sin cobrar?'))return;
  businessBusy=true;
  try{if(currentEmployee){await logoutUser();if(currentEmployee)return;}stopSync();resetEnhancements();cart=[];pendingSale=null;state=deepClone(DEFAULT_STATE);sessionStorage.removeItem('pos_token');setBusinessId(id);

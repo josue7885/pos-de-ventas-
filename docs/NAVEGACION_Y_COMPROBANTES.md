@@ -124,3 +124,5 @@ Al actualizar, los importes del catálogo no se modifican: se interpretan como p
 Los comprobantes y cotizaciones PDF A4 usan encabezado azul, datos del emisor y cliente, tabla de artículos, total destacado, condiciones y espacio para firmas. Repiten encabezados y numeran páginas en documentos largos. La impresión HTML, el ticket de 80 mm y los adjuntos PDF/JSON comparten los importes guardados. El JSON incluye `prices_include_tax` para indicar la modalidad. Los reportes de inventario, libro de IVA y cierre también tienen tablas y paginación; el libro de IVA usa A4 horizontal.
 
 El diseño conserva la identificación de **comprobante interno sin autorización fiscal**; no genera sellos ni autorizaciones de Hacienda.
+
+Consulta la [guía de ventas al crédito, notas, abonos y WhatsApp](CREDITOS_Y_NOTAS.md).

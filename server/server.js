@@ -30,7 +30,7 @@ app.use((req, res, next) => {
   if (!['GET','HEAD','OPTIONS'].includes(req.method) && req.headers.origin && req.headers.origin !== `${req.protocol}://${req.get('host')}` && !allowedOrigins.includes(req.headers.origin)) return res.status(403).json({ error: 'Origen no permitido' });
   next();
 });
-const publicFiles = ['index.html','style.css','app.js','app_utils.js','app_exec_pin.js','customer-display.html','kitchen-display.html','display.js','manifest.webmanifest','icon.svg','pos-math.js','enhancements.js','business-ui.js'];
+const publicFiles = ['index.html','style.css','app.js','app_utils.js','app_exec_pin.js','customer-display.html','kitchen-display.html','display.js','manifest.webmanifest','icon.svg','pos-math.js','enhancements.js','business-ui.js','credit-ui.js'];
 app.get('/', (req,res) => res.sendFile(path.join(ROOT_DIR, 'index.html')));
 for (const file of publicFiles) app.get('/' + file, (req,res) => res.sendFile(path.join(ROOT_DIR, file)));
 const PORT = Number(process.env.PORT || 3000);
@@ -433,8 +433,9 @@ app.use('/api',(req,res,next)=>{
  if(denied)return res.status(403).json({error:'Esta función está desactivada para el negocio'});
  next();
 });
-require('./core')(app, () => db, { profile:buildCompanyProfile, nextInvoiceData, addVatBookEntry, requireAdminOrManager,safeSettings });
+require('./core')(app, () => db, { profile:buildCompanyProfile, nextInvoiceData, addVatBookEntry, requireAdminOrManager,safeSettings,ensureOpenPeriod });
 require('./extensions')(app, () => db, {profile:buildCompanyProfile,requireAdminOrManager,ensureOpenPeriod});
+require('./credit').register(app,()=>db,{profile:buildCompanyProfile,ensureOpenPeriod,addVatBookEntry});
 
 app.get('/api/purchases', authenticateRequired, (req, res) => {
   const rows = db.prepare('SELECT * FROM purchases ORDER BY fecha DESC, id DESC').all();
@@ -496,14 +497,15 @@ app.get('/api/admin/monthly-summary', authenticateRequired, (req, res) => {
   const start = `${year}-${String(mon).padStart(2, '0')}-01`;
   const nextMonth = mon === 12 ? `${year + 1}-01-01` : `${year}-${String(mon + 1).padStart(2, '0')}-01`;
 
-  const salesTotal = db.prepare(`SELECT COALESCE(SUM(total),0) as total FROM sales WHERE date(created_at) >= date(?) AND date(created_at) < date(?)`).get(start, nextMonth).total || 0;
-  const totalTax = db.prepare(`SELECT COALESCE(SUM(tax),0) as total FROM sales WHERE date(created_at) >= date(?) AND date(created_at) < date(?)`).get(start, nextMonth).total || 0;
+  const creditTotals = db.prepare('SELECT COALESCE(SUM(total_cents),0)/100.0 AS total,COALESCE(SUM(tax_cents),0)/100.0 AS tax FROM credit_notes WHERE date(created_at)>=date(?) AND date(created_at)<date(?)').get(start,nextMonth);
+  const salesTotal = (db.prepare(`SELECT COALESCE(SUM(total),0) as total FROM sales WHERE date(created_at) >= date(?) AND date(created_at) < date(?)`).get(start, nextMonth).total || 0)-creditTotals.total;
+  const totalTax = (db.prepare(`SELECT COALESCE(SUM(tax),0) as total FROM sales WHERE date(created_at) >= date(?) AND date(created_at) < date(?)`).get(start, nextMonth).total || 0)-creditTotals.tax;
   const purchasesTotal = db.prepare(`SELECT COALESCE(SUM(total),0) as total FROM purchases WHERE date(fecha) >= date(?) AND date(fecha) < date(?)`).get(start, nextMonth).total || 0;
   const expensesTotal = db.prepare(`SELECT COALESCE(SUM(total),0) as total FROM expenses WHERE date(fecha) >= date(?) AND date(fecha) < date(?)`).get(start, nextMonth).total || 0;
   const ivaCredito = db.prepare(`SELECT COALESCE(SUM(iva),0) as total FROM purchases WHERE date(fecha) >= date(?) AND date(fecha) < date(?)`).get(start, nextMonth).total || 0;
   const inventoryTotal = db.prepare(`SELECT COALESCE(SUM(price * stock),0) as total FROM products`).get().total || 0;
 
-  const salesByDay = db.prepare(`SELECT date(created_at) as day, COALESCE(SUM(total),0) as total FROM sales WHERE date(created_at) >= date(?) AND date(created_at) < date(?) GROUP BY date(created_at) ORDER BY day ASC`).all(start, nextMonth);
+  const salesByDay = db.prepare(`SELECT date(created_at) as day, SUM(total) as total FROM (SELECT created_at,total FROM sales UNION ALL SELECT created_at,-total_cents/100.0 AS total FROM credit_notes) WHERE date(created_at) >= date(?) AND date(created_at) < date(?) GROUP BY date(created_at) ORDER BY day ASC`).all(start, nextMonth);
   const summary = {
     month,
     salesTotal: Number(salesTotal),
@@ -530,10 +532,11 @@ app.post('/api/admin/close-month', authenticateRequired, (req, res) => {
   const start = `${year}-${monthValue}-01`;
   const nextMonth = Number(month) === 12 ? `${Number(year) + 1}-01-01` : `${year}-${String(Number(month) + 1).padStart(2, '0')}-01`;
 
-  const salesTotal = db.prepare(`SELECT COALESCE(SUM(total),0) as total FROM sales WHERE date(created_at) >= date(?) AND date(created_at) < date(?)`).get(start, nextMonth).total || 0;
+  const creditTotals = db.prepare('SELECT COALESCE(SUM(total_cents),0)/100.0 AS total,COALESCE(SUM(tax_cents),0)/100.0 AS tax FROM credit_notes WHERE date(created_at)>=date(?) AND date(created_at)<date(?)').get(start,nextMonth);
+  const salesTotal = (db.prepare(`SELECT COALESCE(SUM(total),0) as total FROM sales WHERE date(created_at) >= date(?) AND date(created_at) < date(?)`).get(start, nextMonth).total || 0)-creditTotals.total;
   const purchasesTotal = db.prepare(`SELECT COALESCE(SUM(total),0) as total FROM purchases WHERE date(fecha) >= date(?) AND date(fecha) < date(?)`).get(start, nextMonth).total || 0;
   const expensesTotal = db.prepare(`SELECT COALESCE(SUM(total),0) as total FROM expenses WHERE date(fecha) >= date(?) AND date(fecha) < date(?)`).get(start, nextMonth).total || 0;
-  const ivaDebito = db.prepare(`SELECT COALESCE(SUM(tax),0) as total FROM sales WHERE date(created_at) >= date(?) AND date(created_at) < date(?)`).get(start, nextMonth).total || 0;
+  const ivaDebito = (db.prepare(`SELECT COALESCE(SUM(tax),0) as total FROM sales WHERE date(created_at) >= date(?) AND date(created_at) < date(?)`).get(start, nextMonth).total || 0)-creditTotals.tax;
   const ivaCredito = db.prepare(`SELECT COALESCE(SUM(iva),0) as total FROM purchases WHERE date(fecha) >= date(?) AND date(fecha) < date(?)`).get(start, nextMonth).total || 0;
   const inventoryTotal = db.prepare(`SELECT COALESCE(SUM(price * stock),0) as total FROM products`).get().total || 0;
 
@@ -559,15 +562,16 @@ app.get('/api/reports/monthly-close/pdf', authenticateRequired, (req, res) => {
   const monthStart = range.start;
   const monthEnd = range.end;
   const sales = db.prepare(`SELECT COALESCE(SUM(total),0) as total, COALESCE(SUM(tax),0) as tax, COUNT(*) as count FROM sales WHERE date(created_at) BETWEEN date(?) AND date(?)`).get(monthStart, monthEnd);
+  const creditTotals = db.prepare('SELECT COALESCE(SUM(total_cents),0)/100.0 AS total,COALESCE(SUM(tax_cents),0)/100.0 AS tax FROM credit_notes WHERE date(created_at) BETWEEN date(?) AND date(?)').get(monthStart,monthEnd);
   const purchases = db.prepare(`SELECT COALESCE(SUM(total),0) as total, COUNT(*) as count FROM purchases WHERE date(fecha) BETWEEN date(?) AND date(?)`).get(monthStart, monthEnd);
   const expenses = db.prepare(`SELECT COALESCE(SUM(total),0) as total, COUNT(*) as count FROM expenses WHERE date(fecha) BETWEEN date(?) AND date(?)`).get(monthStart, monthEnd);
   const salesByDay = db.prepare(`SELECT date(created_at) as day, COALESCE(SUM(total),0) as total FROM sales WHERE date(created_at) BETWEEN date(?) AND date(?) GROUP BY date(created_at) ORDER BY date(created_at) ASC`).all(monthStart, monthEnd);
 
   const profile=buildCompanyProfile(),money=n=>new Intl.NumberFormat(profile.number_locale,{style:'currency',currency:profile.currency_code}).format(Number(n||0));
   const doc=reportDocument(profile,'Cierre de mes',`${monthStart} al ${monthEnd}`,[
-    {title:'Resumen del período',columns:[{label:'Concepto',weight:3},{label:'Importe',weight:2,align:'right'}],rows:[['Ventas totales',money(sales.total)],['Impuesto de ventas registrado',money(sales.tax)],['Compras',money(purchases.total)],['Gastos',money(expenses.total)],['Resultado neto de entradas y salidas',money(sales.total-purchases.total-expenses.total)]]},
-    {title:'Ventas por día',columns:[{label:'Fecha',weight:3},{label:'Total cobrado',weight:2,align:'right'}],rows:salesByDay.map(d=>[d.day,money(d.total)])}
-  ],{note:'Resumen interno del período seleccionado. Los totales de ventas ya incluyen el impuesto registrado; no se agrega nuevamente.'});
+    {title:'Resumen del período',columns:[{label:'Concepto',weight:3},{label:'Importe',weight:2,align:'right'}],rows:[['Ventas emitidas',money(sales.total)],['Notas de crédito',money(creditTotals.total)],['Ventas netas',money(sales.total-creditTotals.total)],['Impuesto de ventas registrado',money(sales.tax-creditTotals.tax)],['Compras',money(purchases.total)],['Gastos',money(expenses.total)],['Resultado neto registrado',money(sales.total-creditTotals.total-purchases.total-expenses.total)]]},
+    {title:'Ventas por día',columns:[{label:'Fecha',weight:3},{label:'Ventas emitidas',weight:2,align:'right'}],rows:salesByDay.map(d=>[d.day,money(d.total)])}
+  ],{note:'Resumen interno. Ventas emitidas incluyen ventas al crédito; no equivalen al efectivo recibido. Las notas reducen el resultado y el IVA en la fecha de emisión. Los abonos no duplican ventas.'});
   res.type('pdf').set('Content-Disposition','attachment; filename="cierre-mensual.pdf"');doc.on('error',()=>res.destroy());doc.pipe(res);doc.end();
 });
 
@@ -721,7 +725,7 @@ function salesReportRows(query) {
   if(end){where.push('date(s.created_at)<=date(?)');args.push(end);}
   if(employeeId){where.push('s.employee_name=(SELECT name FROM users WHERE id=?)');args.push(employeeId);}
   if(employee){if(typeof employee!=='string' || employee.length>200)throw Object.assign(new Error('Cajero inválido'),{status:400});where.push('s.employee_name=?');args.push(employee);}
-  if(payment){if(!['efectivo','tarjeta','transferencia'].includes(payment))throw Object.assign(new Error('Método inválido'),{status:400});where.push('s.payment_method=?');args.push(payment);}
+  if(payment){if(!['efectivo','tarjeta','transferencia','credito'].includes(payment))throw Object.assign(new Error('Método inválido'),{status:400});where.push('s.payment_method=?');args.push(payment);}
   return db.prepare('SELECT s.* FROM sales s'+(where.length?' WHERE '+where.join(' AND '):'')+' ORDER BY s.id DESC').all(...args).map(s=>{
     const items=db.prepare('SELECT cost,qty FROM sale_items WHERE sale_id=?').all(s.id);
     const cost=items.length && items.every(i=>i.cost!==null)?items.reduce((n,i)=>n+Math.round(require('../pos-math').cents(i.cost)*require('../pos-math').quantity(i.qty)/1000),0)/100:null;

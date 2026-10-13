@@ -93,7 +93,8 @@
           "icon.svg",
           "pos-math.js",
           "enhancements.js",
-          "business-ui.js"
+          "business-ui.js",
+          "credit-ui.js"
         ]
       }
     ]

@@ -5,7 +5,7 @@ const {loadDocument,captureProfile,documentFilename}=require('./documents');
 const { create } = require('xmlbuilder2');
 const commerce=require('./commerce');
 
-module.exports = function registerCore(app, getDb, { profile, nextInvoiceData, addVatBookEntry, requireAdminOrManager,safeSettings }) {
+module.exports = function registerCore(app, getDb, { profile, nextInvoiceData, addVatBookEntry, requireAdminOrManager,safeSettings,ensureOpenPeriod }) {
   const db = () => getDb();
   const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
   const cents = (value, label = 'Monto') => {
@@ -30,6 +30,8 @@ module.exports = function registerCore(app, getDb, { profile, nextInvoiceData, a
     for (const row of db().prepare('SELECT payment_method, total FROM sales WHERE shift_id = ?').all(shift.id)) {
       totals[row.payment_method] = (totals[row.payment_method] || 0) + Math.round(row.total * 100);
     }
+    for(const r of db().prepare('SELECT payment_method,amount_cents FROM credit_payments WHERE shift_id=?').all(shift.id))totals[r.payment_method]+=r.amount_cents;
+    for(const r of db().prepare('SELECT refund_method,refund_cents FROM credit_notes WHERE shift_id=?').all(shift.id))totals[r.refund_method]-=r.refund_cents;
     return { id: shift.id, isOpen: !shift.closed_at, openingCash: shift.opening_cents / 100,
       currentCash: (shift.opening_cents + totals.efectivo) / 100, cashSales: totals.efectivo / 100,
       cardSales: totals.tarjeta / 100, transferSales: totals.transferencia / 100,
@@ -138,14 +140,22 @@ module.exports = function registerCore(app, getDb, { profile, nextInvoiceData, a
         quote=db().prepare('SELECT * FROM quotes WHERE id=?').get(input.quoteId);
         if(!quote || quote.converted_sale_id || quote.valid_until<new Date().toISOString())fail(409,'La cotización venció o ya fue convertida');
       }
-      const received = input.paymentMethod === 'efectivo' ? cents(input.receivedAmount) : total;
-      if (received < total) fail(400, 'Efectivo insuficiente.');
-      const date = new Date().toISOString();
+      const isCredit=input.paymentMethod==='credito';
+      if(isCredit){
+        if(!Number.isSafeInteger(Number(input.customerId))||!db().prepare('SELECT id FROM customers WHERE id=?').get(Number(input.customerId)))fail(400,'Selecciona un cliente registrado para vender al crédito');
+        if(!require('./credit').dateValid(input.creditDueDate)||input.creditDueDate<new Date().toISOString().slice(0,10))fail(400,'Indica un vencimiento válido, hoy o una fecha posterior (UTC)');
+        if(!total)fail(400,'El crédito debe tener un importe positivo');
+      }
+      const received = isCredit?0:input.paymentMethod === 'efectivo' ? cents(input.receivedAmount) : total;
+      if (!isCredit && received < total) fail(400, 'Efectivo insuficiente.');
+      const date = new Date().toISOString();ensureOpenPeriod(date);
       const customer = { name: String(input.customerName || 'Cliente general').slice(0,200), nit: String(input.customerNit || 'CF').slice(0,40), email: String(input.customerEmail || '').slice(0,254), phone: String(input.customerPhone || '').slice(0,40), address: String(input.customerAddress || '').slice(0,1000) };
-      if(input.documentType==='credito_fiscal' && (!String(input.customerName||'').trim() || !String(input.customerNit||'').trim() || String(input.customerNit).trim().toUpperCase()==='CF'))fail(400,'El crédito fiscal requiere nombre y NIT del receptor');
+      if(isCredit){const registered=db().prepare('SELECT * FROM customers WHERE id=?').get(Number(input.customerId));Object.assign(customer,{name:registered.full_name,nit:registered.nit||registered.dui||'CF',email:registered.email||'',phone:registered.phone||'',address:registered.address||''});}
+      if(input.documentType==='credito_fiscal' && (!String(isCredit?customer.name:input.customerName||'').trim() || !String(isCredit?customer.nit:input.customerNit||'').trim() || customer.nit.trim().toUpperCase()==='CF'))fail(400,'El crédito fiscal requiere nombre y NIT del receptor');
       const type = input.documentType === 'credito_fiscal' ? 'credito_fiscal' : 'consumidor_final';
-      const info = db().prepare(`INSERT INTO sales (employee_name,payment_method,total,subtotal,tax,created_at,received_amount,change_amount,customer_name,customer_nit,customer_email,customer_phone,customer_address,document_type,customer_id,shift_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(req.user.name,input.paymentMethod,total/100,subtotal/100,tax/100,date,received/100,(received-total)/100,customer.name,customer.nit,customer.email,customer.phone,customer.address,type,input.customerId || null,shift.id);
+      const info = db().prepare(`INSERT INTO sales (employee_name,payment_method,total,subtotal,tax,created_at,received_amount,change_amount,customer_name,customer_nit,customer_email,customer_phone,customer_address,document_type,customer_id,shift_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(req.user.name,input.paymentMethod,total/100,subtotal/100,tax/100,date,received/100,(isCredit?0:received-total)/100,customer.name,customer.nit,customer.email,customer.phone,customer.address,type,input.customerId || null,shift.id);
       const saleId = info.lastInsertRowid;
+      if(isCredit)db().prepare('UPDATE sales SET credit_due_date=? WHERE id=?').run(input.creditDueDate,saleId);
       db().prepare('UPDATE sales SET prices_include_tax=1,gross=?,discount=?,discount_percent=?,discount_reason=?,quote_id=?,customer_department=?,customer_municipality=?,customer_giro=? WHERE id=?').run(totals.gross,totals.discount,percent,reason,quote?.id||null,String(input.customerDepartment||'').slice(0,100),String(input.customerMunicipality||'').slice(0,100),String(input.customerGiro||'').slice(0,200),saleId);
       if(quote)db().prepare('UPDATE quotes SET converted_sale_id=? WHERE id=?').run(saleId,quote.id);
       for (const it of items) {

@@ -22,12 +22,15 @@ module.exports=function(app,getDb,{profile,requireAdminOrManager,ensureOpenPerio
   documentAccess(req);
   const sales=db().prepare('SELECT s.id FROM sales s JOIN invoices i ON i.sale_id=s.id ORDER BY s.id DESC LIMIT 1000').all().map(r=>saleDocument(r.id));
   const quotes=db().prepare('SELECT id FROM quotes ORDER BY id DESC LIMIT 1000').all().map(r=>quoteDocument(r.id));
+  const notes=db().prepare('SELECT id FROM credit_notes ORDER BY id DESC LIMIT 1000').all().map(r=>loadDocument(db(),profile(),'credit_note',r.id));
+  const payments=db().prepare('SELECT id FROM credit_payments ORDER BY id DESC LIMIT 1000').all().map(r=>loadDocument(db(),profile(),'credit_payment',r.id));
+  for(const sale of sales)sale.credit_state=require('./credit').creditState(db(),db().prepare('SELECT * FROM sales WHERE id=?').get(sale.id));
   // The directory does not need logos or issuer details repeated for every row.
-  res.json({documents:[...sales,...quotes].sort((a,b)=>b.created_at.localeCompare(a.created_at)).map(({issuer,...summary})=>summary)});
+  res.json({documents:[...sales,...quotes,...notes,...payments].sort((a,b)=>b.created_at.localeCompare(a.created_at)).map(({issuer,...summary})=>summary)});
  }));
  app.get('/api/documents/:kind/:id/:format',handle((req,res)=>{
-  documentAccess(req);if(!['sale','quote'].includes(req.params.kind))fail(404,'Tipo desconocido');
-  const document=req.params.kind==='quote'?quoteDocument(req.params.id):saleDocument(req.params.id);
+  documentAccess(req);if(!['sale','quote','credit_note','credit_payment'].includes(req.params.kind))fail(404,'Tipo desconocido');
+  const document=loadDocument(db(),profile(),req.params.kind,req.params.id);
   if(req.params.format==='json'){
    res.setHeader('Content-Disposition',`attachment; filename="${documentFilename(document)}.json"`);return res.json(document);
   }

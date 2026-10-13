@@ -52,7 +52,7 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  assert.match(w.document.getElementById('system-product-results').textContent,/4 unidad/);
  assert.match(w.document.getElementById('sale-document-confirmation').textContent,/cliente no tiene correo/);
  assert.equal(w.document.getElementById('sale-document-confirmation').classList.contains('hidden'),false);
- assert.equal(w.document.querySelectorAll('#sale-document-confirmation [data-document-action]').length,4);
+ assert.equal(w.document.querySelectorAll('#sale-document-confirmation [data-document-action]').length,6);
  second=await open();let v=second.window;v.document.getElementById('pin-input').value='729184';await v.loginUser();assert.equal(v.eval('state.products[0].stock'),4);
  w.crypto.randomUUID=undefined;assert.match(w.newRequestId(),/^[a-f0-9]{32}$/);w.addToCart(1);w.openBillingModal('payment');loseNext=true;await w.processSale();assert.equal(w.eval('pendingSale.uncertain'),true);assert.equal(w.eval('cart.length'),1);
  await w.processSale();assert.equal(w.eval('pendingSale'),null);assert.equal(w.eval('state.sales.length'),2);await v.syncFromServer();assert.equal(v.eval('state.sales.length'),2);assert.equal(v.eval('state.products[0].stock'),3);assert.match(w.document.getElementById('sale-document-confirmation').textContent,/Permite ventanas emergentes/);

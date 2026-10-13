@@ -604,7 +604,8 @@ function openBillingModal(action = 'payment') {
   const totals = getCartTotals();
   const modal = document.getElementById('billing-modal');
   modal.classList.remove('customer-only');
-  document.getElementById('billing-modal-title').textContent='Confirmar cobro';
+  const onCredit=document.getElementById('billing-payment-method').value==='credito';
+  document.getElementById('billing-modal-title').textContent=onCredit?'Confirmar venta al crédito':'Confirmar cobro';
   const modalCustomerSummary = document.getElementById('modal-customer-summary');
   const modalTotalSummary = document.getElementById('modal-total-summary');
   const confirmBtn = document.getElementById('confirm-billing-btn');
@@ -619,12 +620,12 @@ function openBillingModal(action = 'payment') {
   }
 
   const cashReceived = document.getElementById('billing-cash-received') || document.getElementById('cash-received');
-  if (cashReceived && !cashReceived.value) {
+  if (cashReceived && !onCredit && !cashReceived.value) {
     cashReceived.value = totals.total.toFixed(2);
   }
 
   if (confirmBtn) {
-    confirmBtn.textContent = action === 'kitchen' ? 'Enviar a cocina' : 'Confirmar cobro';
+    confirmBtn.textContent = action === 'kitchen' ? 'Enviar a cocina' : onCredit?'Registrar deuda':'Confirmar cobro';
   }
 
   if (modal) {
@@ -972,7 +973,8 @@ async function processSale() {
   if (!pendingSale && paymentMethod==='efectivo' && (!Number.isFinite(receivedAmount) || receivedAmount<totals.total)) return alert('Efectivo insuficiente o inválido.');
   if (!pendingSale && localStorage.getItem(pendingSaleKey())) { restorePendingSale();renderCart();return; }
   if (!pendingSale) {
-    pendingSale={key:newRequestId(),output:document.getElementById('sale-receipt-output').value,payload:{...cartPayload(),paymentMethod,receivedAmount,emailReceipt:document.getElementById('sale-email-receipt').checked}};
+    if(paymentMethod==='credito'&&(!document.getElementById('customer-select').value||!document.getElementById('sale-credit-due').value))return alert('Selecciona un cliente registrado y la fecha de vencimiento.');
+    pendingSale={key:newRequestId(),output:document.getElementById('sale-receipt-output').value,payload:{...cartPayload(),paymentMethod,receivedAmount,creditDueDate:document.getElementById('sale-credit-due').value,emailReceipt:document.getElementById('sale-email-receipt').checked}};
     try { localStorage.setItem(pendingSaleKey(),JSON.stringify(pendingSale)); }
     catch (_) { pendingSale=null;return alert('No se pudo guardar el identificador de venta. No se envió el cobro.'); }
   }
@@ -1088,8 +1090,8 @@ function renderCashPanel() {
         <p><strong>Turno abierto:</strong> ${new Date(state.shift.openedAt).toLocaleString()}</p>
         <p><strong>Apertura:</strong> ${currency(state.shift.openingCash)}</p>
         <p><strong>Dinero actual:</strong> ${currency(state.shift.currentCash)}</p>
-        <p><strong>Ventas en efectivo:</strong> ${currency(state.shift.cashSales)}</p>
-        <p><strong>Ventas con tarjeta:</strong> ${currency(state.shift.cardSales)}</p>
+        <p><strong>Efectivo neto (ventas + abonos − devoluciones):</strong> ${currency(state.shift.cashSales)}</p>
+        <p><strong>Tarjeta neta (ventas + abonos − devoluciones):</strong> ${currency(state.shift.cardSales)}</p>
         <p><strong>Transferencias:</strong> ${currency(state.shift.transferSales)}</p>
       </div>
     `;

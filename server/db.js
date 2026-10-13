@@ -316,6 +316,11 @@ async function openDatabase(dbPath,adminPin,adminName,releaseLock) {
     db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS one_open_shift ON shifts((1)) WHERE closed_at IS NULL`).run();
     ensureColumn('sales', 'shift_id', 'INTEGER');
     ensureColumn('sales', 'prices_include_tax', 'INTEGER NOT NULL DEFAULT 0');
+    ensureColumn('sales', 'credit_due_date', 'TEXT');
+    db.prepare('CREATE TABLE IF NOT EXISTS credit_notes (id INTEGER PRIMARY KEY AUTOINCREMENT,sale_id INTEGER NOT NULL,total_cents INTEGER NOT NULL,tax_cents INTEGER NOT NULL,refund_cents INTEGER NOT NULL,refund_method TEXT NOT NULL,shift_id INTEGER,user_id INTEGER NOT NULL,created_at TEXT NOT NULL,snapshot TEXT NOT NULL)').run();
+    db.prepare('CREATE TABLE IF NOT EXISTS credit_payments (id INTEGER PRIMARY KEY AUTOINCREMENT,sale_id INTEGER NOT NULL,amount_cents INTEGER NOT NULL,payment_method TEXT NOT NULL,shift_id INTEGER NOT NULL,user_id INTEGER NOT NULL,created_at TEXT NOT NULL,snapshot TEXT NOT NULL)').run();
+    db.prepare('CREATE INDEX IF NOT EXISTS credit_notes_sale ON credit_notes(sale_id)').run();
+    db.prepare('CREATE INDEX IF NOT EXISTS credit_payments_sale ON credit_payments(sale_id)').run();
     db.prepare(`CREATE TABLE IF NOT EXISTS rooms (id TEXT PRIMARY KEY, name TEXT NOT NULL)`).run();
     db.prepare(`CREATE TABLE IF NOT EXISTS restaurant_tables (id INTEGER PRIMARY KEY AUTOINCREMENT, room TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'libre', waiter TEXT DEFAULT '', customer TEXT DEFAULT '', notes TEXT DEFAULT '')`).run();
     db.prepare("INSERT OR IGNORE INTO rooms (id,name) VALUES ('salon-principal','Salón principal')").run();

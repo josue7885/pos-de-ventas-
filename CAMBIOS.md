@@ -1,3 +1,13 @@
+## Ventas al crédito, notas y recibos de abono
+
+- Venta al crédito configurable por administrador, con cliente registrado y vencimiento.
+- Cuentas por cobrar, abonos y notas de crédito monetarias vinculadas a la venta original.
+- Límites de saldo, permisos, reintentos sin duplicar y datos separados por negocio.
+- Efectivo, tarjeta y transferencia incorporan abonos y devoluciones en el turno correspondiente.
+- Notas e IVA se descuentan en el período de emisión; las ventas originales se conservan.
+- PDF y JSON históricos, correo con adjuntos, compartir archivos y alternativa de chat WhatsApp.
+- Guía: `docs/CREDITOS_Y_NOTAS.md`. Documentos internos sin autorización fiscal; las notas no modifican existencias.
+
 ## Ventanas flotantes de ventas, inventario y clientes
 
 - Inventario de venta en una ventana con búsqueda, cantidades y agregado al carrito.

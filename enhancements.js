@@ -133,7 +133,7 @@ function quantityStep(p){return fractionalUnits.has(p.unit)?0.001:1;}
 function roundQuantity(n){return Math.round(n*1000)/1000;}
 function canEditInventory(){return Boolean(currentEmployee && ['admin','gerente'].includes(currentEmployee.role));}
 function operationLocked(){return saleInFlight || pendingSale;}
-function resetEnhancements(){closeAllFloating(false);++customerSelectionSequence;document.getElementById('sale-inventory-search').value='';document.getElementById('sale-inventory-status').textContent='';document.getElementById('sale-catalog').open=false;document.getElementById('product-grid').replaceChildren();document.getElementById('home-period').value='7';document.getElementById('search-input').value='';document.getElementById('sale-entry-quantity').value='1';document.getElementById('billing-more').open=false;stockLastUpdated=0;stockSyncError=false;document.getElementById('system-product-search').value='';document.getElementById('system-product-results').replaceChildren();document.getElementById('system-product-results').classList.add('hidden');document.getElementById('stock-search-status').textContent='';rememberedModule={};lastConfirmedDocument=null;document.getElementById('sale-document-confirmation')?.classList.add('hidden');for(const id of ['setting-business_type','apply-business-profile'])document.getElementById(id).disabled=true;customerDirectory=[];documentDirectory=[];selectedQuoteId=null;++documentsSequence;resetSaleAdjustments();document.getElementById('operation-recovery-panel')?.classList.add('hidden');document.querySelectorAll('[id^=billing-customer-]').forEach(el=>{if(el.tagName==='INPUT'||el.tagName==='TEXTAREA')el.value='';});renderCustomerDirectory('');updateCustomerSummary();}
+function resetEnhancements(){resetCreditUI();closeAllFloating(false);++customerSelectionSequence;document.getElementById('sale-inventory-search').value='';document.getElementById('sale-inventory-status').textContent='';document.getElementById('sale-catalog').open=false;document.getElementById('product-grid').replaceChildren();document.getElementById('home-period').value='7';document.getElementById('search-input').value='';document.getElementById('sale-entry-quantity').value='1';document.getElementById('billing-more').open=false;stockLastUpdated=0;stockSyncError=false;document.getElementById('system-product-search').value='';document.getElementById('system-product-results').replaceChildren();document.getElementById('system-product-results').classList.add('hidden');document.getElementById('stock-search-status').textContent='';rememberedModule={};lastConfirmedDocument=null;document.getElementById('sale-document-confirmation')?.classList.add('hidden');for(const id of ['setting-business_type','apply-business-profile'])document.getElementById(id).disabled=true;customerDirectory=[];documentDirectory=[];selectedQuoteId=null;++documentsSequence;resetSaleAdjustments();document.getElementById('operation-recovery-panel')?.classList.add('hidden');document.querySelectorAll('[id^=billing-customer-]').forEach(el=>{if(el.tagName==='INPUT'||el.tagName==='TEXTAREA')el.value='';});renderCustomerDirectory('');updateCustomerSummary();}
 function resetCheckoutCustomer(){
  document.getElementById('customer-select').value='';
  document.querySelectorAll('[id^=billing-customer-]').forEach(el=>{if(el.tagName==='INPUT'||el.tagName==='TEXTAREA')el.value='';});
@@ -178,14 +178,16 @@ async function saveQuoteFromCart(){
 async function refreshDocuments(){
  if(!currentEmployee || !['admin','gerente','cajero','contador'].includes(currentEmployee.role))return;
  const seq=++documentsSequence,user=currentEmployee.id,status=document.getElementById('billing-server-status');
- try{const data=await apiRequest('/documents');if(seq!==documentsSequence || currentEmployee?.id!==user)return;documentDirectory=data.documents;renderDocuments();status.textContent='Comprobantes internos registrados en el servidor. Sin autorización fiscal.';}
+ try{const data=await apiRequest('/documents');if(seq!==documentsSequence || currentEmployee?.id!==user)return;documentDirectory=data.documents;renderDocuments();await refreshCreditAccounts();status.textContent='Comprobantes internos registrados en el servidor. Sin autorización fiscal.';}
  catch(error){if(seq===documentsSequence)status.textContent=error.message;}
 }
 function documentButtons(d){
  const identity=`data-kind="${d.kind}" data-id="${d.id}"`;
- const actions=[['ticket','Imprimir'],['pdf','PDF'],['json','JSON'],['email','Enviar correo']];
+ const actions=[['ticket','Imprimir'],['pdf','PDF'],['json','JSON'],['email','Enviar correo'],['whatsapp','WhatsApp']];
  let html=actions.map(([action,label])=>`<button type="button" class="ghost-btn small" data-document-action="${action}" ${identity}>${label}</button>`).join('');
  if(d.kind==='quote' && ['admin','gerente','cajero'].includes(currentEmployee?.role) && !d.converted_sale_id && new Date(d.valid_until)>new Date())html+=`<button type="button" class="primary-btn small" data-document-action="load" ${identity}>Usar en venta</button>`;
+ if(d.kind==='sale'&&canEditInventory())html+=`<button type="button" class="ghost-btn small" data-document-action="creditnote" ${identity}>Nota de crédito</button>`;
+ if(d.kind==='sale'&&d.payment_method==='credito'&&['admin','gerente','cajero'].includes(currentEmployee?.role))html+=`<button type="button" class="primary-btn small" data-document-action="creditpayment" ${identity}>Registrar abono</button>`;
  return html;
 }
 function showConfirmedSale(sale,number,emailDelivery){
@@ -195,7 +197,7 @@ function showConfirmedSale(sale,number,emailDelivery){
  panel.classList.remove('hidden');
  if(emailDelivery)appendReceiptStatus(emailDelivery.message);
 }
-function documentFileBase(d){return `${d.kind==='quote'?'cotizacion':'comprobante'}-${String(d.number||d.id).replace(/[^A-Za-z0-9_-]/g,'_').slice(0,80)}`;}
+function documentFileBase(d){return `${({quote:'cotizacion',credit_note:'nota-credito',credit_payment:'abono'})[d.kind]||'comprobante'}-${String(d.number||d.id).replace(/[^A-Za-z0-9_-]/g,'_').slice(0,80)}`;}
 function openReceiptWindow(){
  const popup=window.open('','_blank','width=900,height=900');
  if(!popup)return null;
@@ -227,9 +229,9 @@ async function printDocument(d,popup=openReceiptWindow(),format='ticket'){
 }
 function renderDocuments(){
  const search=(document.getElementById('billing-invoices-search').value||'').toLowerCase(),start=document.getElementById('billing-invoices-from').value,end=document.getElementById('billing-invoices-to').value,type=document.getElementById('billing-invoices-type').value;
- const sales=documentDirectory.filter(d=>d.kind==='sale' && (!type || d.document_type===type) && (!start || d.created_at.slice(0,10)>=start) && (!end || d.created_at.slice(0,10)<=end) && [d.number,d.customer_name,d.customer_nit].some(v=>String(v||'').toLowerCase().includes(search)));
- document.getElementById('billing-invoices-summary').textContent=`${sales.length} comprobantes · Total ${currency(sales.reduce((sum,s)=>sum+s.total,0))} · Fechas UTC`;
- document.getElementById('billing-invoices-body').innerHTML=sales.map(d=>`<tr><td>${escapeHtml(d.number)}</td><td>${d.document_type==='credito_fiscal'?'Crédito fiscal interno':'Consumidor final interno'}</td><td>${escapeHtml(new Date(d.created_at).toLocaleString())}</td><td>${escapeHtml(d.customer_name)}</td><td>Registrado · no fiscal</td><td>${currency(d.total)}</td><td class="sale-document-actions">${documentButtons(d)}</td></tr>`).join('')||'<tr><td colspan="7">No hay documentos con esos filtros.</td></tr>';
+ const sales=documentDirectory.filter(d=>d.kind!=='quote' && (!type || d.kind===type || d.kind==='sale'&&d.document_type===type) && (!start || d.created_at.slice(0,10)>=start) && (!end || d.created_at.slice(0,10)<=end) && [d.number,d.customer_name,d.customer_nit].some(v=>String(v||'').toLowerCase().includes(search)));
+ document.getElementById('billing-invoices-summary').textContent=`${sales.length} comprobantes · Total ${currency(sales.reduce((sum,s)=>sum+(s.kind==='credit_payment'?0:s.kind==='credit_note'?-s.total:s.total),0))} (ventas menos notas; abonos excluidos) · Fechas UTC`;
+ document.getElementById('billing-invoices-body').innerHTML=sales.map(d=>`<tr><td>${escapeHtml(d.number)}</td><td>${escapeHtml(creditDocumentLabel(d))}</td><td>${escapeHtml(new Date(d.created_at).toLocaleString())}</td><td>${escapeHtml(d.customer_name)}</td><td>${d.kind==='sale'&&d.payment_method==='credito'?'Saldo '+currency(d.credit_state?.balance??d.total):'Registrado · no fiscal'}</td><td>${currency(d.total)}</td><td class="sale-document-actions">${documentButtons(d)}</td></tr>`).join('')||'<tr><td colspan="7">No hay documentos con esos filtros.</td></tr>';
  const q=(document.getElementById('documents-quote-search').value||'').toLowerCase();
  const quotes=documentDirectory.filter(d=>d.kind==='quote' && [d.number,d.customer_name,d.customer_nit].some(v=>String(v||'').toLowerCase().includes(q)));
  document.getElementById('documents-quotes-content').innerHTML='<div class="table-wrap"><table><thead><tr><th>Número</th><th>Cliente</th><th>Vigencia</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>'+quotes.map(d=>`<tr><td>${escapeHtml(d.number)}</td><td>${escapeHtml(d.customer_name)}</td><td>${escapeHtml(new Date(d.valid_until).toLocaleString())}</td><td>${currency(d.total)}</td><td>${d.converted_sale_id?'Convertida #'+d.converted_sale_id:new Date(d.valid_until)<new Date()?'Vencida':'Vigente'}</td><td class="sale-document-actions">${documentButtons(d)}</td></tr>`).join('')+'</tbody></table></div>';
@@ -240,7 +242,7 @@ async function downloadFromApi(path,filename){
 }
 async function documentAction(event){
  const button=event.target.closest('[data-document-action]');if(!button)return;
- const d=[...documentDirectory,lastConfirmedDocument].find(x=>x && x.kind===button.dataset.kind && x.id===Number(button.dataset.id));if(!d || button.disabled)return;
+ const d=[...documentDirectory,lastConfirmedDocument,lastCreditDocument].find(x=>x && x.kind===button.dataset.kind && x.id===Number(button.dataset.id));if(!d || button.disabled)return;
  button.disabled=true;
  try{
   const action=button.dataset.documentAction;
@@ -251,6 +253,8 @@ async function documentAction(event){
    await apiRequest(`/documents/${d.kind}/${d.id}/email`,{method:'POST',body:JSON.stringify({customerEmail:email})});alert('Correo aceptado por el servidor. Revisa la bandeja de entrada y spam del destinatario.');
   }
   if(action==='load')await loadQuoteToCart(d);
+  if(action==='creditnote'||action==='creditpayment')await openCreditOperation(d,action);
+  if(action==='whatsapp')await prepareDocumentShare(d);
  }catch(error){alert(error.message);}finally{button.disabled=false;}
 }
 async function loadQuoteToCart(quote){
@@ -323,7 +327,7 @@ function salesReportQuery(){
  const query=new URLSearchParams();for(const [key,id] of Object.entries({start:'sales-report-start',end:'sales-report-end',payment:'sales-report-payment',employee:'sales-report-employee'})){const value=document.getElementById(id)?.value;if(value && value!=='all')query.set(key,value);}return query;
 }
 function initEnhancements(){
- initializeFloatingPanels();
+ initializeFloatingPanels();initCreditUI();
  try{applySidebarPreference(localStorage.getItem('pos_sidebar_collapsed')==='true');}catch(_){applySidebarPreference(false);}
  document.getElementById('sidebar-toggle').addEventListener('click',()=>{const collapsed=!document.getElementById('app-shell').classList.contains('sidebar-collapsed');applySidebarPreference(collapsed);try{localStorage.setItem('pos_sidebar_collapsed',String(collapsed));}catch(_){}});
  document.getElementById('home-period').addEventListener('change',renderHome);
@@ -346,7 +350,7 @@ function initEnhancements(){
  bind('refresh-stock-search','click',async event=>{event.target.disabled=true;try{await syncFromServer();}catch(error){stockSyncError=true;renderStockSearch();}finally{event.target.disabled=false;}});
  bind('billing-customer-search','input',()=>renderCustomerDirectory());
  bind('customer-select','focus',()=>loadCustomers());
- bind('operation-recovery-panel','click',async event=>{const b=event.target.closest('[data-recover]');if(!b || b.disabled)return;b.disabled=true;try{const kind=b.dataset.recover;await trackedOperation(kind,kind==='quote'?'/quotes':'/inventory/receive',null);await syncFromServer();await refreshDocuments();alert('Operación recuperada sin duplicar.');}catch(e){alert(e.message);}finally{refreshPendingOperations();}});
+ bind('operation-recovery-panel','click',async event=>{const b=event.target.closest('[data-recover]');if(!b || b.disabled)return;b.disabled=true;try{const kind=b.dataset.recover;await trackedOperation(kind,creditOperationPaths[kind]||(kind==='quote'?'/quotes':'/inventory/receive'),null);await syncFromServer();await refreshDocuments();alert('Operación recuperada sin duplicar.');}catch(e){alert(e.message);}finally{refreshPendingOperations();}});
 
  bind('billing-new-customer-btn','click',()=>customerEditor(true));bind('billing-edit-customer-btn','click',()=>customerEditor(false));
  bind('save-quote-btn','click',saveQuoteFromCart);bind('quotes-module-create-btn','click',saveQuoteFromCart);
@@ -381,9 +385,9 @@ function initEnhancements(){
 
 function refreshPendingOperations(){
  const panel=document.getElementById('operation-recovery-panel');if(!panel)return;
- const pending=currentEmployee?['quote','receive'].filter(kind=>localStorage.getItem(`pos_operation:${operationScope()}:${currentEmployee.id}:${kind}`)):[];
+ const pending=currentEmployee?['quote','receive','creditnote','creditpayment'].filter(kind=>localStorage.getItem(`pos_operation:${operationScope()}:${currentEmployee.id}:${kind}`)):[];
  panel.classList.toggle('hidden',!pending.length);
- panel.innerHTML=pending.length?'<p>Hay operaciones pendientes de confirmar con el servidor. Recupera su resultado antes de registrarlas de nuevo.</p>'+pending.map(kind=>`<button type="button" class="primary-btn small" data-recover="${kind}">Recuperar ${kind==='quote'?'cotización':'entrada de inventario'}</button>`).join(''):'';
+ panel.innerHTML=pending.length?'<p>Hay operaciones pendientes de confirmar con el servidor. Recupera su resultado antes de registrarlas de nuevo.</p>'+pending.map(kind=>`<button type="button" class="primary-btn small" data-recover="${kind}">Recuperar ${({quote:'cotización',receive:'entrada de inventario',creditnote:'nota de crédito',creditpayment:'abono'})[kind]}</button>`).join(''):'';
 }
 
 function renderStockSearch(){
