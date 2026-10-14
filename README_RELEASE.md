@@ -2,6 +2,14 @@
 
 El escritorio incluye su propio servidor: no necesitas instalar Node.js para usar el instalador. Android e iOS son terminales del mismo servidor. El servidor debe permanecer encendido para cobrar y sincronizar; no se registran ventas sin conexión.
 
+## Estado verificado de esta revisión
+
+El código 1.2.0 está en `fix/backend-auth-sales-sync`. Pasaron 59 pruebas del servidor, 4 de instalación y los dos recorridos de Chromium. El backend empaquetado en Linux arrancó con el Node integrado, sirvió los recursos públicos, autenticó al administrador y conservó un producto después del reinicio. Se generaron paquetes Linux AppImage, DEB y TAR.GZ localmente. El asistente se comprobó en navegador; la apertura de la ventana nativa no pudo ejecutarse en este entorno por restricciones de sockets del sistema.
+
+La ejecución [Installers del 14 de octubre de 2026](https://github.com/josue7885/pos-de-ventas-/actions/runs/38500460194) quedó bloqueada **antes de ejecutar pruebas o compilaciones**. GitHub informó: `The job was not started because your account is locked due to a billing issue.` No hay paquetes descargables de esa ejecución. El titular debe revisar la facturación de GitHub y después volver a ejecutar los trabajos. Esta revisión no generó ni validó instaladores nativos Windows/macOS/Android/iOS; sus scripts y flujo de compilación están preparados, sujetos a la primera ejecución y pruebas en esos sistemas.
+
+Mientras se resuelve GitHub Actions puedes compilar localmente con los comandos de esta guía. No se modificó la facturación ni se contrató ningún servicio.
+
 ## Descargar paquetes
 
 Abre [Actions → Installers](https://github.com/josue7885/pos-de-ventas-/actions/workflows/installers.yml), selecciona la ejecución más reciente de `fix/backend-auth-sales-sync` y comprueba su commit. Cuando termine correctamente, descarga **Artifacts** (requiere sesión de GitHub). Descomprime el ZIP de GitHub para encontrar el instalador y `SHA256SUMS.txt`. La retención es de 30 días; se puede volver a compilar la misma versión.
@@ -37,7 +45,7 @@ La instalación mantiene `installation.json` y `data` en el perfil de usuario de
 
 El portable **no guarda la base junto al EXE**. No borres el perfil al actualizar. Mantén una sola instancia del servidor por directorio de datos. El puerto fijo conserva el origen del navegador entre reinicios; al migrar desde una versión de puerto aleatorio, confirma antes todas las ventas pendientes en la instalación anterior.
 
-Antes de actualizar: termina cobros pendientes, cierra el programa y respalda todo el directorio de datos. Para una migración desde el servidor Node usa `npm run backup` / `npm run restore` según el README principal, con ambas instalaciones detenidas. Prueba primero una copia y conserva el original. Instalar el EXE no importa automáticamente los datos de la antigua carpeta `server`.
+Antes de actualizar: termina cobros pendientes, sal del programa mediante **POS Control → Salir** (en macOS cerrar la ventana puede dejarlo ejecutándose) y respalda todo el directorio de datos. Para una migración desde el servidor Node usa `npm run backup` / `npm run restore` según el README principal, con ambas instalaciones detenidas. Prueba primero una copia y conserva el original. Instalar el EXE no importa automáticamente los datos de la antigua carpeta `server`.
 
 La actualización es manual: instala la nueva versión y conserva el mismo perfil. Las migraciones se ejecutan al arrancar. No hay descarga ni instalación automática de actualizaciones.
 

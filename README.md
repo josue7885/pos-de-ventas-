@@ -143,4 +143,4 @@ Consulta la [guía de ventas al crédito, notas, abonos y WhatsApp](docs/CREDITO
 
 ## Instalación 1.2.0
 
-Asistente de primer inicio, modo servidor o terminal, puerto local estable, instalador Windows y portable separados, paquetes macOS/Linux y preparación Android/iOS con compartir nativo. Las compilaciones están en [Actions → Installers](https://github.com/josue7885/pos-de-ventas-/actions/workflows/installers.yml). Lee [la guía de instalación](README_RELEASE.md) para elegir el archivo correcto, conservar datos y conocer los requisitos de firma.
+Asistente de primer inicio, modo servidor o terminal, puerto local estable, instalador Windows y portable separados, paquetes macOS/Linux y preparación Android/iOS con compartir nativo. El flujo de compilación está en [Actions → Installers](https://github.com/josue7885/pos-de-ventas-/actions/workflows/installers.yml). Lee [la guía de instalación](README_RELEASE.md) para elegir el archivo correcto, conservar datos y conocer los requisitos de firma.
