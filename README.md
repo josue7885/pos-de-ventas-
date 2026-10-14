@@ -52,7 +52,7 @@ Las ventas que únicamente estaban en el antiguo `localStorage` NO se importan a
 
 Arranca el único servidor con `POS_HOST=0.0.0.0` y abre `http://IP-DEL-SERVIDOR:3000` en cada dispositivo autorizado. Todos deben usar el mismo servidor. Para exposición fuera de una red de confianza, configura HTTPS y controles de red. No publiques directamente el puerto en Internet.
 
-El cliente usa el origen desde el que se abrió. El botón **Configurar servidor** permite elegir otra URL cuando sea necesario. Para clientes alojados en otro origen, configura `POS_ALLOWED_ORIGINS` con una lista de orígenes exactos separados por comas; los navegadores bloquean combinaciones inseguras de HTTP/HTTPS. El flujo verificado es servir la web desde el propio servidor POS. El arranque de Electron y los recursos de Android se preparan con scripts reproducibles; falta validar binarios en cada plataforma (README_RELEASE.md y README_ANDROID.md).
+El cliente usa el origen desde el que se abrió. El botón **Configurar servidor** permite elegir otra URL cuando sea necesario. Para clientes alojados en otro origen, configura `POS_ALLOWED_ORIGINS` con una lista de orígenes exactos separados por comas; los navegadores bloquean combinaciones inseguras de HTTP/HTTPS. El flujo verificado es servir la web desde el propio servidor POS. El escritorio incluye un asistente inicial y servidor integrado; Android/iOS se conectan al servidor compartido. Consulta [instalación por plataforma](README_RELEASE.md) y [clientes móviles](README_ANDROID.md).
 
 ## Cobros y sincronización
 
@@ -67,7 +67,7 @@ El cliente usa el origen desde el que se abrió. El botón **Configurar servidor
 
 ## Alcance de comprobantes
 
-El PDF es un **comprobante interno sin autorización fiscal**. La integración de Hacienda recuperada era una plantilla sin firma ni envío real. Los endpoints de activación/envío responden `501` para evitar presentar esa integración como operativa. La impresión, los PDF, los JSON y los adjuntos de correo de ventas y cotizaciones salen del mismo documento del servidor. Los nuevos documentos conservan el perfil público del emisor al emitirse; los anteriores sin perfil guardado indican que muestran la configuración actual. El cobro puede imprimir un ticket de 80 mm o descargar un PDF A4, y enviar automáticamente PDF/JSON al cliente si la casilla de correo está marcada y SMTP está configurado. Los reintentos de la misma venta no repiten automáticamente el correo; el reenvío manual sigue disponible. Las pruebas envían exclusivamente a un receptor SMTP local de prueba y comparan sus adjuntos con las descargas; la entrega con tu proveedor requiere validación adicional. No se generan instaladores en esta revisión.
+El PDF es un **comprobante interno sin autorización fiscal**. La integración de Hacienda recuperada era una plantilla sin firma ni envío real. Los endpoints de activación/envío responden `501` para evitar presentar esa integración como operativa. La impresión, los PDF, los JSON y los adjuntos de correo de ventas y cotizaciones salen del mismo documento del servidor. Los nuevos documentos conservan el perfil público del emisor al emitirse; los anteriores sin perfil guardado indican que muestran la configuración actual. El cobro puede imprimir un ticket de 80 mm o descargar un PDF A4, y enviar automáticamente PDF/JSON al cliente si la casilla de correo está marcada y SMTP está configurado. Los reintentos de la misma venta no repiten automáticamente el correo; el reenvío manual sigue disponible. Las pruebas envían exclusivamente a un receptor SMTP local de prueba y comparan sus adjuntos con las descargas; la entrega con tu proveedor requiere validación adicional. La preparación de instaladores 1.2.0 y los requisitos de firma se describen en [README_RELEASE.md](README_RELEASE.md).
 
 ## Pruebas
 
@@ -140,3 +140,7 @@ Los comprobantes y cotizaciones PDF A4 usan encabezado azul, datos del emisor y 
 El diseño conserva la identificación de **comprobante interno sin autorización fiscal**; no genera sellos ni autorizaciones de Hacienda.
 
 Consulta la [guía de ventas al crédito, notas, abonos y WhatsApp](docs/CREDITOS_Y_NOTAS.md).
+
+## Instalación 1.2.0
+
+Asistente de primer inicio, modo servidor o terminal, puerto local estable, instalador Windows y portable separados, paquetes macOS/Linux y preparación Android/iOS con compartir nativo. Las compilaciones están en [Actions → Installers](https://github.com/josue7885/pos-de-ventas-/actions/workflows/installers.yml). Lee [la guía de instalación](README_RELEASE.md) para elegir el archivo correcto, conservar datos y conocer los requisitos de firma.

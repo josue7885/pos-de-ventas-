@@ -1488,6 +1488,7 @@ async function downloadReportPdf(type, params = {}) {
     });
     if (!res.ok) throw new Error('No se pudo generar el PDF');
     const blob = await res.blob();
+    if(window.POSNative?.active)return await window.POSNative.shareFile(blob,({'monthly-close':'cierre-mensual','vat-book':'libro-iva',inventory:'inventario'}[type]||'reporte')+'.pdf');
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -1523,6 +1524,7 @@ async function exportReport(format = 'csv') {
     if (cd && cd.includes('filename=')) {
       filename = cd.split('filename=')[1].replace(/"/g, '');
     }
+    if(window.POSNative?.active)return await window.POSNative.shareFile(blob,filename);
     const a = document.createElement('a');
     const urlBlob = URL.createObjectURL(blob);
     a.href = urlBlob;

@@ -1,17 +1,17 @@
 {
   "name": "pos-control-multiplatform",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Punto de venta con servidor local, ventas transaccionales y clientes web.",
   "author": "POS Control",
   "main": "electron-main.js",
   "scripts": {
     "start": "node server/server.js",
     "start:electron": "electron .",
-    "dist": "electron-builder",
-    "build:win": "electron-builder --win portable",
-    "build:all": "electron-builder --win --mac --linux",
-    "android:add": "npm run prepare:web && cap add android",
-    "android:sync": "npm run prepare:web && cap sync android",
+    "dist": "electron-builder --publish never",
+    "build:win": "electron-builder --win nsis portable --x64 --publish never",
+    "build:all": "electron-builder --win --mac --linux --publish never",
+    "android:add": "node scripts/prepare-native.cjs android",
+    "android:sync": "node scripts/prepare-native.cjs android",
     "android:open": "npx cap open android",
     "setup:server": "npm ci --prefix server",
     "test": "npm test --prefix server",
@@ -21,60 +21,74 @@
     "prebuild:all": "npm run prepare:desktop",
     "prepare:desktop": "node scripts/prepare-desktop.cjs",
     "backup": "node scripts/data-backup.cjs backup",
-    "restore": "node scripts/data-backup.cjs restore"
+    "restore": "node scripts/data-backup.cjs restore",
+    "build:mac": "electron-builder --mac --publish never",
+    "build:linux": "electron-builder --linux --x64 --publish never",
+    "prebuild:mac": "npm run prepare:desktop",
+    "prebuild:linux": "npm run prepare:desktop",
+    "test:installation": "node --test tests/installation.test.cjs",
+    "ios:add": "node scripts/prepare-native.cjs ios",
+    "ios:sync": "node scripts/prepare-native.cjs ios",
+    "ios:open": "cap open ios",
+    "checksums": "node scripts/checksums.cjs"
   },
   "devDependencies": {
     "@capacitor/android": "8.4.3",
     "@capacitor/cli": "8.4.3",
     "electron": "44.5.1",
-    "electron-builder": "26.15.3"
+    "electron-builder": "26.15.3",
+    "playwright": "1.64.0"
   },
   "dependencies": {
-    "@capacitor/core": "8.4.3"
+    "@capacitor/browser": "8.0.5",
+    "@capacitor/core": "8.4.3",
+    "@capacitor/filesystem": "8.1.4",
+    "@capacitor/ios": "8.4.3",
+    "@capacitor/share": "8.0.3"
   },
   "build": {
     "appId": "com.poscontrol.app",
     "productName": "POS Control",
     "directories": {
-      "app": "."
+      "app": ".",
+      "output": "dist"
     },
     "files": [
       "electron-main.js",
-      "package.json"
+      "desktop/**",
+      "package.json",
+      "!node_modules/**"
     ],
     "win": {
       "target": [
         "nsis",
         "portable"
-      ],
-      "signAndEditExecutable": false,
-      "artifactName": "POS-Control-${version}-portable.exe"
+      ]
     },
     "mac": {
       "target": [
         "dmg",
         "zip"
-      ]
+      ],
+      "category": "public.app-category.business"
     },
     "linux": {
       "target": [
         "AppImage",
         "deb",
         "tar.gz"
-      ]
+      ],
+      "category": "Office",
+      "maintainer": "POS Control"
     },
     "extraResources": [
       {
         "from": "server",
         "to": "server",
         "filter": [
-          "**/*",
-          "!test/**",
-          "!*.db*",
-          "!*.key",
-          "!*.lock",
-          "!invoices/**",
-          "!businesses/**"
+          "*.js",
+          "package.json",
+          "fonts/**"
         ]
       },
       {
@@ -94,10 +108,30 @@
           "pos-math.js",
           "enhancements.js",
           "business-ui.js",
-          "credit-ui.js"
+          "credit-ui.js",
+          "native-platform.js"
+        ]
+      },
+      {
+        "from": "server/node_modules",
+        "to": "server/node_modules",
+        "filter": [
+          "**/*",
+          "!.cache/**"
         ]
       }
-    ]
+    ],
+    "artifactName": "POS-Control-${version}-${os}-${arch}.${ext}",
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "POS-Control-${version}-Windows-${arch}-Setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "POS-Control-${version}-Windows-${arch}-Portable.${ext}"
+    }
   },
   "engines": {
     "node": ">=22.12.0"

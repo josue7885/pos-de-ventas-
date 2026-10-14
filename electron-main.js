@@ -1,54 +1,38 @@
-const {app,BrowserWindow,dialog} = require('electron');
-const path=require('path');
-const http=require('http');
-const {spawn}=require('child_process');
-let serverProcess,origin,quitting=false;
-function health(url) {
-  return new Promise(resolve=>{
-    const request=http.get(url+'/api/health',{timeout:1500},res=>{
-      let body='';res.on('data',d=>body+=d);res.on('end',()=>{
-        try{const data=JSON.parse(body);resolve(res.statusCode===200 && data.service==='pos-control' && data.ready===true);}catch{resolve(false);}
-      });
-    });
-    request.on('error',()=>resolve(false));request.on('timeout',()=>{request.destroy();resolve(false);});
-  });
+const {app,BrowserWindow,dialog,ipcMain,shell,Menu}=require('electron');
+const path=require('node:path'),fs=require('node:fs'),http=require('node:http'),https=require('node:https'),{pathToFileURL}=require('node:url'),{spawn}=require('node:child_process');
+const {validateConfig,saveConfig,isWhatsAppUrl}=require('./desktop/config.cjs');
+let serverProcess,origin,quitting=false,stopping=false,setupWindow,setupError='',setupBusy=false,configuration;
+const setupUrl=pathToFileURL(path.join(__dirname,'desktop/setup.html')).href;
+const dataDirectory=()=>process.env.POS_DATA_DIR||path.join(app.getPath('userData'),'data');
+const configFile=()=>path.join(app.getPath('userData'),'installation.json');
+function health(url){return new Promise(resolve=>{const request=(url.startsWith('https:')?https:http).get(url+'/api/health',{timeout:5000},res=>{let body='';res.on('data',d=>{body+=d;if(body.length>8192)request.destroy();});res.on('end',()=>{try{const data=JSON.parse(body);resolve(res.statusCode===200&&data.service==='pos-control'&&data.ready===true);}catch{resolve(false);}});});request.on('error',()=>resolve(false));request.on('timeout',()=>{request.destroy();resolve(false);});});}
+async function stopServer(){if(!serverProcess)return;const child=serverProcess;serverProcess=null;stopping=true;try{if(child.exitCode===null&&child.signalCode===null)await new Promise(resolve=>{child.once('exit',resolve);child.kill();});}finally{stopping=false;}}
+function startServer(config,pin){return new Promise((resolve,reject)=>{
+ const serverPath=path.join(app.isPackaged?process.resourcesPath:__dirname,'server/server.js');
+ const env={...process.env,ELECTRON_RUN_AS_NODE:'1',PORT:String(config.port),POS_HOST:config.shareNetwork?'0.0.0.0':'127.0.0.1',POS_DATA_DIR:dataDirectory(),POS_ALLOWED_ORIGINS:config.shareNetwork?'https://localhost,capacitor://localhost':''};if(pin)env.POS_ADMIN_PIN=pin;
+ const child=serverProcess=spawn(process.execPath,[serverPath],{env,stdio:['ignore','pipe','pipe'],windowsHide:true});delete env.POS_ADMIN_PIN;
+ let output='',errors='',settled=false;
+ const timer=setTimeout(()=>{settled=true;child.kill();reject(Error('El servidor no respondió en 30 segundos.'));},30000);
+ child.stderr.on('data',d=>{errors=(errors+d).slice(-4000);});child.stdout.on('data',async d=>{output=(output+d).slice(-4000);const match=output.match(/listening on port (\d+)/);if(match&&!settled){const url='http://127.0.0.1:'+match[1];if(await health(url)){settled=true;clearTimeout(timer);resolve(url);}}});
+ child.once('error',e=>{clearTimeout(timer);settled=true;reject(e);});child.once('exit',code=>{clearTimeout(timer);if(!settled){settled=true;reject(Error(errors||`Servidor terminó: ${code}`));}else if(origin&&!quitting&&!stopping){dialog.showErrorBox('POS: servidor detenido','No se puede cobrar sin servidor. Cierra y vuelve a abrir la aplicación.');app.quit();}});
+});}
+function secureWindow(win){
+ const contents=win.webContents;
+ contents.setWindowOpenHandler(({url})=>{try{if(url==='about:blank'||new URL(url).origin===origin)return {action:'allow',overrideBrowserWindowOptions:{webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}}};if(isWhatsAppUrl(url))shell.openExternal(url).catch(()=>dialog.showErrorBox('WhatsApp','No se pudo abrir el navegador.'));}catch{}return {action:'deny'};});
+ contents.on('will-navigate',(event,url)=>{try{if(new URL(url).origin!==origin){event.preventDefault();if(isWhatsAppUrl(url))shell.openExternal(url).catch(()=>{});}}catch{event.preventDefault();}});
+ contents.on('did-create-window',secureWindow);
 }
-async function startServer() {
-  const serverPath=path.join(app.isPackaged?process.resourcesPath:__dirname,'server','server.js');
-  return new Promise((resolve,reject)=>{
-    const timer=setTimeout(()=>reject(Error('El servidor no respondió en 30 segundos.')),30000);
-    serverProcess=spawn(process.execPath,[serverPath],{
-      env:{...process.env,ELECTRON_RUN_AS_NODE:'1',PORT:'0',POS_HOST:'127.0.0.1',POS_DATA_DIR:process.env.POS_DATA_DIR || path.join(app.getPath('userData'),'data')},
-      stdio:['ignore','pipe','pipe'],windowsHide:true
-    });
-    let output='',errors='';
-    serverProcess.stderr.on('data',d=>{errors=(errors+d).slice(-4000);});
-    serverProcess.stdout.on('data',async d=>{
-      output+=d;const match=output.match(/listening on port (\d+)/);
-      if(match){const url='http://127.0.0.1:'+match[1];if(await health(url)){clearTimeout(timer);resolve(url);}}
-    });
-    serverProcess.once('error',e=>{clearTimeout(timer);reject(e);});
-    serverProcess.once('exit',code=>{
-      clearTimeout(timer);reject(Error(errors || `Servidor terminó: ${code}`));
-      if(origin && !quitting){dialog.showErrorBox('POS: servidor detenido','Cierra y abre la aplicación. No se puede cobrar sin servidor.');app.quit();}
-    });
-  });
-}
-function createWindow(){
-  const win=new BrowserWindow({width:1280,height:860,minWidth:1000,minHeight:680,title:'POS Control',webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}});
-  win.webContents.setWindowOpenHandler(({url})=>{
-    // Receipts use an isolated same-origin window; external navigation is blocked.
-    try{if(url==='about:blank' || new URL(url).origin===origin)return {action:'allow',overrideBrowserWindowOptions:{webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}}};}catch{}
-    return {action:'deny'};
-  });
-  win.webContents.on('will-navigate',(event,url)=>{if(new URL(url).origin!==origin)event.preventDefault();});
-  win.loadURL(origin);win.maximize();
-}
-if(!app.requestSingleInstanceLock())app.quit();
-else app.whenReady().then(async()=>{
-  try{origin=await startServer();createWindow();}catch(error){dialog.showErrorBox('No se pudo iniciar POS',error.message+'\nPrimera ejecución: define POS_ADMIN_PIN (6 a 12 dígitos).');app.quit();}
+function createWindow(){const win=new BrowserWindow({width:1280,height:860,minWidth:900,minHeight:650,title:'POS Control',webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}});secureWindow(win);win.loadURL(origin);win.maximize();}
+async function launch(config,pin){const next=validateConfig(config);if(next.mode==='remote'){if(!await health(next.url))throw Error('No se encontró un servidor POS disponible en esa dirección.');origin=undefined;await stopServer();origin=next.url;}else{origin=undefined;await stopServer();origin=await startServer(next,pin);}return next;}
+function showSetup(error=''){setupError=error;setupWindow=new BrowserWindow({width:760,height:850,minWidth:620,minHeight:650,title:'Preparar POS Control',webPreferences:{preload:path.join(__dirname,'desktop/preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});setupWindow.webContents.setWindowOpenHandler(()=>({action:'deny'}));setupWindow.webContents.on('will-navigate',e=>e.preventDefault());setupWindow.loadURL(setupUrl);setupWindow.on('closed',()=>{setupWindow=null;});}
+function setupAuthorized(event){return setupWindow&&!setupWindow.isDestroyed()&&event.sender===setupWindow.webContents&&event.senderFrame===setupWindow.webContents.mainFrame&&event.senderFrame.url===setupUrl;}
+if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()=>{
+ ipcMain.handle('pos-setup-info',event=>{if(!setupAuthorized(event))throw Error('Acceso no permitido');return {hasData:fs.existsSync(path.join(dataDirectory(),'pos.db')),dataDirectory:dataDirectory(),error:setupError,config:configuration};});
+ ipcMain.handle('pos-setup-save',async(event,value)=>{if(!setupAuthorized(event)||setupBusy)return {ok:false,error:'Operación no disponible'};setupBusy=true;try{const config=validateConfig(value);if(config.mode==='local'&&!fs.existsSync(path.join(dataDirectory(),'pos.db'))&&!/^[0-9]{6,12}$/.test(value.pin||''))throw Error('El PIN inicial debe tener de 6 a 12 dígitos.');configuration=await launch(config,value.pin);saveConfig(configFile(),configuration);createWindow();setupWindow?.close();return {ok:true};}catch(error){await stopServer();origin=undefined;return {ok:false,error:error.message};}finally{setupBusy=false;}});
+ Menu.setApplicationMenu(Menu.buildFromTemplate([{label:'POS Control',submenu:[{label:'Acerca de POS Control',click:()=>dialog.showMessageBox({message:'POS Control '+app.getVersion(),detail:'Servidor local o terminal conectada. Los datos locales se guardan en:\n'+dataDirectory()})},{label:'Abrir carpeta de datos',click:()=>{fs.mkdirSync(dataDirectory(),{recursive:true});shell.openPath(dataDirectory());}},{label:'Configurar esta instalación',click:async()=>{if(setupWindow){setupWindow.focus();return;}const result=await dialog.showMessageBox({type:'question',buttons:['Cancelar','Configurar'],defaultId:0,cancelId:0,message:'¿Terminaste los cobros pendientes?',detail:'Se cerrarán las pantallas de ventas de esta computadora. Los datos guardados se conservarán.'});if(result.response!==1)return;const windows=BrowserWindow.getAllWindows();showSetup();for(const win of windows)win.close();}},{type:'separator'},{role:'quit'}]},{label:'Editar',submenu:[{role:'undo'},{role:'redo'},{type:'separator'},{role:'cut'},{role:'copy'},{role:'paste'},{role:'selectAll'}]},{label:'Ventana',submenu:[{role:'reload'},{role:'resetZoom'},{role:'zoomIn'},{role:'zoomOut'},{role:'togglefullscreen'}]}]));
+ try{if(fs.existsSync(configFile()))configuration=validateConfig(JSON.parse(fs.readFileSync(configFile(),'utf8')));else if(fs.existsSync(path.join(dataDirectory(),'pos.db'))||process.env.POS_ADMIN_PIN)configuration={mode:'local',port:37891,shareNetwork:false};else return showSetup();await launch(configuration,process.env.POS_ADMIN_PIN);saveConfig(configFile(),configuration);createWindow();}catch(error){await stopServer();origin=undefined;showSetup(error.message);}
 });
-app.on('activate',()=>{if(origin && !BrowserWindow.getAllWindows().length)createWindow();});
+app.on('activate',()=>{if(origin&&!BrowserWindow.getAllWindows().length)createWindow();});
 app.on('second-instance',()=>{const win=BrowserWindow.getAllWindows()[0];if(win){if(win.isMinimized())win.restore();win.show();win.focus();}});
-app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});
-app.on('before-quit',()=>{quitting=true;serverProcess?.kill();});
+app.on('window-all-closed',()=>{if(process.platform!=='darwin'||!origin)app.quit();});
+app.on('before-quit',event=>{if(serverProcess&&!quitting){event.preventDefault();quitting=true;stopServer().finally(()=>app.quit());}else quitting=true;});

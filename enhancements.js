@@ -199,6 +199,7 @@ function showConfirmedSale(sale,number,emailDelivery){
 }
 function documentFileBase(d){return `${({quote:'cotizacion',credit_note:'nota-credito',credit_payment:'abono'})[d.kind]||'comprobante'}-${String(d.number||d.id).replace(/[^A-Za-z0-9_-]/g,'_').slice(0,80)}`;}
 function openReceiptWindow(){
+ if(window.POSNative?.active)return null;
  const popup=window.open('','_blank','width=900,height=900');
  if(!popup)return null;
  popup.opener=null;
@@ -213,6 +214,7 @@ async function deliverSaleReceipt(d,output,popup){
  }catch(error){appendReceiptStatus('Venta registrada. '+error.message+' Usa Imprimir o PDF para volver a abrir el comprobante.');}
 }
 async function printDocument(d,popup=openReceiptWindow(),format='ticket'){
+ if(window.POSNative?.active)return downloadFromApi(`/documents/${d.kind}/${d.id}/pdf`,`${documentFileBase(d)}.pdf`);
  // A provided null means popup blocking; do not open another after the asynchronous sale.
  if(!popup)throw Error('Permite ventanas emergentes para imprimir. También puedes descargar el PDF.');
  const user=currentEmployee?.id;
@@ -238,7 +240,9 @@ function renderDocuments(){
 }
 async function downloadFromApi(path,filename){
  const res=await posFetch(getApiUrl(path));if(!res.ok){const data=await res.json().catch(()=>({}));throw Error(data.error||'No se pudo descargar');}
- const url=URL.createObjectURL(await res.blob()),link=document.createElement('a');link.href=url;link.download=filename;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ const blob=await res.blob();
+ if(window.POSNative?.active)return window.POSNative.shareFile(blob,filename);
+ const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=filename;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 async function documentAction(event){
  const button=event.target.closest('[data-document-action]');if(!button)return;

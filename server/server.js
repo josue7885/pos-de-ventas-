@@ -30,7 +30,7 @@ app.use((req, res, next) => {
   if (!['GET','HEAD','OPTIONS'].includes(req.method) && req.headers.origin && req.headers.origin !== `${req.protocol}://${req.get('host')}` && !allowedOrigins.includes(req.headers.origin)) return res.status(403).json({ error: 'Origen no permitido' });
   next();
 });
-const publicFiles = ['index.html','style.css','app.js','app_utils.js','app_exec_pin.js','customer-display.html','kitchen-display.html','display.js','manifest.webmanifest','icon.svg','pos-math.js','enhancements.js','business-ui.js','credit-ui.js'];
+const publicFiles = ['index.html','style.css','app.js','app_utils.js','app_exec_pin.js','customer-display.html','kitchen-display.html','display.js','manifest.webmanifest','icon.svg','pos-math.js','enhancements.js','business-ui.js','credit-ui.js','native-platform.js'];
 app.get('/', (req,res) => res.sendFile(path.join(ROOT_DIR, 'index.html')));
 for (const file of publicFiles) app.get('/' + file, (req,res) => res.sendFile(path.join(ROOT_DIR, file)));
 const PORT = Number(process.env.PORT || 3000);

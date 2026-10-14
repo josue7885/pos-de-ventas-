@@ -1,5 +1,9 @@
-const fs=require('fs'),path=require('path');
+const fs=require('node:fs'),path=require('node:path');
 const root=path.resolve(__dirname,'..'),destination=path.join(root,'www');
-fs.mkdirSync(destination,{recursive:true});
-for(const file of ['index.html','style.css','app.js','app_utils.js','app_exec_pin.js','customer-display.html','kitchen-display.html','display.js','manifest.webmanifest','icon.svg','pos-math.js','enhancements.js','business-ui.js','credit-ui.js']) fs.copyFileSync(path.join(root,file),path.join(destination,file));
-console.log('Recursos web preparados en www. Android requiere un servidor POS externo accesible.');
+const files=require('../package.json').build.extraResources.find(r=>r.from==='.').filter;
+fs.rmSync(destination,{recursive:true,force:true});fs.mkdirSync(destination,{recursive:true});
+for(const file of files)fs.copyFileSync(path.join(root,file),path.join(destination,file));
+fs.copyFileSync(path.join(root,'node_modules/@capacitor/core/dist/capacitor.js'),path.join(destination,'capacitor-runtime.js'));
+const html=fs.readFileSync(path.join(destination,'index.html'),'utf8').replace('<script src="native-platform.js">','<script src="capacitor-runtime.js"></script>\n    <script src="native-platform.js">');
+fs.writeFileSync(path.join(destination,'index.html'),html);
+console.log('Recursos móviles preparados en www. Configura la dirección del servidor POS en el acceso.');
