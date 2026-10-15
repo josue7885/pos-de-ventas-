@@ -22,7 +22,7 @@ const DATA_DIR = path.resolve(process.env.POS_DATA_DIR || __dirname);
 const allowedOrigins = (process.env.POS_ALLOWED_ORIGINS || '').split(',').filter(Boolean);
 app.use(cors({ credentials: true, origin(origin, done) { done(null, !origin || allowedOrigins.includes(origin)); } }));
 app.disable('x-powered-by');
-app.use(bodyParser.json({ limit: '2mb' }));
+app.use((req,res,next)=>bodyParser.json({limit:req.path==='/api/document-relay/receive'?'8mb':'2mb'})(req,res,next));
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
@@ -30,7 +30,7 @@ app.use((req, res, next) => {
   if (!['GET','HEAD','OPTIONS'].includes(req.method) && req.headers.origin && req.headers.origin !== `${req.protocol}://${req.get('host')}` && !allowedOrigins.includes(req.headers.origin)) return res.status(403).json({ error: 'Origen no permitido' });
   next();
 });
-const publicFiles = ['index.html','style.css','app.js','app_utils.js','app_exec_pin.js','customer-display.html','kitchen-display.html','display.js','manifest.webmanifest','icon.svg','pos-math.js','enhancements.js','business-ui.js','credit-ui.js','native-platform.js'];
+const publicFiles = ['index.html','style.css','app.js','app_utils.js','app_exec_pin.js','customer-display.html','kitchen-display.html','display.js','manifest.webmanifest','icon.svg','pos-math.js','enhancements.js','business-ui.js','credit-ui.js','native-platform.js','connection-ui.js','relay-ui.js'];
 app.get('/', (req,res) => res.sendFile(path.join(ROOT_DIR, 'index.html')));
 for (const file of publicFiles) app.get('/' + file, (req,res) => res.sendFile(path.join(ROOT_DIR, file)));
 const PORT = Number(process.env.PORT || 3000);
@@ -43,6 +43,7 @@ db=businesses.db;
 app.get('/api/businesses',async(req,res,next)=>{try{await businesses.ready;res.setHeader('Cache-Control','no-store');res.json({businesses:businesses.list(false),primaryId:'principal'});}catch(error){next(error);}});
 app.use('/api',businesses.middleware);
 app.get('/api/health', (req,res) => res.json({ service: 'pos-control', ready: businesses.isReady() }));
+require('./document-relay').registerReceiver(app,()=>db,rateLimit({windowMs:60000,max:120}));
 app.use('/api', (req,res,next) => {
   res.setHeader('Cache-Control', 'no-store');
   if ((req.method === 'GET' && ['/settings','/users','/health'].includes(req.path)) || (req.method === 'POST' && req.path === '/auth/login')) return next();
@@ -425,6 +426,7 @@ app.delete('/api/users/:id', execLimiter, authenticateRequired, (req, res) => {
 });
 
 businesses.register(app,{requireExecutivePin,limiter:execLimiter});
+require('./document-relay').register(app,()=>db,{profile:buildCompanyProfile,requireExecutivePin});
 app.use('/api',(req,res,next)=>{
  const cfg=buildCompanyProfile();
  const kind=req.path==='/quotes'?'quote':req.path==='/inventory/receive'?'receive':null;

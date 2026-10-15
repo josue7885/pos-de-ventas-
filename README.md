@@ -148,3 +148,7 @@ Asistente de primer inicio, modo servidor o terminal, puerto local estable, inst
 ## Cortes de caja 1.2.1
 
 Caja → Turno y cierre incorpora X (consulta), Y (arqueo parcial) y Z (cierre definitivo), desglose por medio de pago, faltantes/sobrantes e historial con PDF, impresión y JSON. Consulta [la guía de cortes](docs/CORTES_DE_CAJA.md). La impresión móvil se realiza abriendo el PDF compartido en un lector compatible.
+
+## Modos de operación y documentos 1.3.0
+
+Android puede ejecutar el servidor completo mediante Termux y conectarse a `http://127.0.0.1:3000`; sigue siendo una aplicación auxiliar, no un motor integrado dentro del APK. Se conserva el modo de servidor externo. Una cola persistente envía copias PDF/JSON entre servidores mediante claves revocables por negocio, sin duplicar ventas ni modificar existencias. El receptor permite descargar, imprimir desde PDF y solicitar correo. Consulta [la guía de servidor en el teléfono](docs/ANDROID_SERVIDOR_LOCAL.md). La prueba física de Termux y los nuevos paquetes nativos están pendientes.

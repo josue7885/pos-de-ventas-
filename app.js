@@ -430,6 +430,7 @@ async function sendCurrentCartToKitchen() {
 }
 
 function showLogin() {
+  clearRelaySecrets();
   document.getElementById('login-screen').classList.remove('hidden');
   document.getElementById('app-shell').classList.add('hidden');
 }
@@ -791,6 +792,8 @@ function setActiveModule(moduleId) {
   renderNav();
   if (moduleId === 'home') renderHome();
   if (moduleId === 'cash') renderCashPanel();
+  if (moduleId === 'documents') loadDocumentRelay();
+  if (moduleId === 'settings') loadDocumentRelay(true);
   if (moduleId === 'reports') renderReports();
   if (moduleId === 'businesses') refreshBusinesses();
   if (moduleId === 'settings') fillCompanySettingsForm(state.companySettings);
@@ -1064,7 +1067,7 @@ async function openShift() {
   catch(error) { alert(error.message); }
 }
 let shiftReportBusy=false,shiftReportHistorySequence=0;
-function shiftReportPendingKey(){return `pos_shift_report_${getBusinessId()}_${currentEmployee?.id}`;}
+function shiftReportPendingKey(){const old=`pos_shift_report_${getBusinessId()}_${currentEmployee?.id}`,key=`${old}_${encodeURIComponent(getSavedApiBase())}`;if(sessionStorage.getItem(old)&&!sessionStorage.getItem(key)){sessionStorage.setItem(key,sessionStorage.getItem(old));sessionStorage.removeItem(old);}return key;}
 function pendingShiftReport(){try{return JSON.parse(sessionStorage.getItem(shiftReportPendingKey())||'null');}catch{return null;}}
 function openShiftReport(type){
  if(!['admin','gerente','cajero'].includes(currentEmployee?.role))return alert('Solo administrador, gerente o cajero puede emitir cortes.');
@@ -1764,11 +1767,7 @@ async function persistCompanySettings(payload) {
     const serverBase=payload.server_base;delete payload.server_base;
     const data=await apiRequest('/settings',{method:'PUT',headers:await executiveHeaders(),body:JSON.stringify(payload)});
     state.companySettings=data.settings;applyCompanySettings(data.settings);fillCompanySettingsForm(data.settings);applyBusinessConfiguration();renderNav();renderCart();
-    if (serverBase && serverBase.replace(/\/$/,'')!==getSavedApiBase()) {
-      const url=new URL(serverBase);
-      if (!['http:','https:'].includes(url.protocol)) throw new Error('URL de servidor inválida');
-      localStorage.setItem('pos_api_base',url.href.replace(/\/$/,''));location.reload();return;
-    }
+    if (serverBase && serverBase.replace(/\/$/,'')!==getSavedApiBase()) { await setConnectionTarget(serverBase);return; }
     alert('Configuración guardada.');
   } catch(error) { alert(error.message); }
 }
@@ -1909,7 +1908,7 @@ function initializeApp() {
   const addTableBtn = document.getElementById('add-table-btn');
   if (addTableBtn) addTableBtn.addEventListener('click', addTableToCurrentRoom);
 
-  bindCompanySettingsForm();initEnhancements();initShiftReports();
+  bindCompanySettingsForm();initEnhancements();initShiftReports();initConnectionModes();initDocumentRelay();
 
   const pinInputEl = document.getElementById('pin-input');
   if (pinInputEl) {
@@ -1924,9 +1923,5 @@ function initializeApp() {
   showLogin();
 }
 
-document.getElementById('login-server-btn')?.addEventListener('click', () => {
-  const value=prompt('URL del servidor POS:',getSavedApiBase());if(!value)return;
-  try { const url=new URL(value);if(!['http:','https:'].includes(url.protocol))throw new Error();localStorage.setItem('pos_api_base',url.href.replace(/\/$/,''));sessionStorage.removeItem('pos_token');location.reload(); }
-  catch(_){alert('URL inválida.');}
-});
+document.getElementById('login-server-btn')?.addEventListener('click',openConnectionSettings);
 initializeApp();

@@ -1,6 +1,6 @@
 {
   "name": "pos-control-multiplatform",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Punto de venta con servidor local, ventas transaccionales y clientes web.",
   "author": "POS Control",
   "main": "electron-main.js",
@@ -30,7 +30,8 @@
     "ios:add": "node scripts/prepare-native.cjs ios",
     "ios:sync": "node scripts/prepare-native.cjs ios",
     "ios:open": "cap open ios",
-    "checksums": "node scripts/checksums.cjs"
+    "checksums": "node scripts/checksums.cjs",
+    "phone:server": "bash scripts/phone-server.sh"
   },
   "devDependencies": {
     "@capacitor/android": "8.4.3",
@@ -109,7 +110,9 @@
           "enhancements.js",
           "business-ui.js",
           "credit-ui.js",
-          "native-platform.js"
+          "native-platform.js",
+          "connection-ui.js",
+          "relay-ui.js"
         ]
       },
       {

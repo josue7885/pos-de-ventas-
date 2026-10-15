@@ -35,7 +35,7 @@ async function posFetch(url, options = {}) {
 }
 async function apiRequest(path, options = {}) {
   const response = await posFetch(getApiUrl(path), { ...options, headers:{...getAuthHeaders(), ...options.headers} });
-  const data = await response.json().catch(error => {if(error.status===409)throw error;return {};});
+  const data = await response.json().catch(error => {if(error.status===409)throw error;throw new Error('No se recibió una respuesta POS válida. Usa Configurar servidor para conectar este dispositivo.');});
   if (!response.ok) throw Object.assign(new Error(data.error || `Error del servidor (${response.status})`), { status:response.status });
   return data;
 }

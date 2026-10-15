@@ -1,6 +1,12 @@
-# Android, iPhone y iPad — POS Control 1.2.0
+## Actualización 1.3.0: teléfono como servidor
 
-Los móviles se conectan al servidor compartido. No contienen Node.js ni una base de ventas independiente. Configura el servidor en la pantalla de acceso; debe estar encendido y accesible. Consulta [instalación y datos](README_RELEASE.md).
+El servidor completo puede iniciarse mediante Termux en Android. En la app, elige **Configurar servidor → Servidor en este teléfono / dispositivo** y conecta a `http://127.0.0.1:3000`. Termux debe permanecer activo. Este modo conserva los datos aparte de la computadora y requiere instalar el servidor una vez.
+
+Lee [los pasos de Termux, respaldos y envío de documentos](docs/ANDROID_SERVIDOR_LOCAL.md). Se agregó envío de copias a otro servidor y recepción PDF/JSON/correo. Esto no fusiona inventarios. La validación física en Android está pendiente; los pasos siguientes siguen aplicando para compilar el cliente APK actualizado.
+
+# Android, iPhone y iPad — POS Control 1.3.0
+
+El APK y la aplicación iOS son clientes: no contienen Node.js ni una base de ventas. En Android, Termux puede ejecutar el servidor en el mismo teléfono con su propia base. En iOS se utiliza un servidor externo. Configura la dirección en la pantalla de acceso; el servidor elegido debe permanecer activo. Consulta [instalación y datos](README_RELEASE.md).
 
 ## Android
 

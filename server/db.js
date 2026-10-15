@@ -316,6 +316,10 @@ async function openDatabase(dbPath,adminPin,adminName,releaseLock) {
     db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS one_open_shift ON shifts((1)) WHERE closed_at IS NULL`).run();
     db.prepare("CREATE TABLE IF NOT EXISTS shift_reports (id INTEGER PRIMARY KEY AUTOINCREMENT,shift_id INTEGER NOT NULL,type TEXT NOT NULL CHECK(type IN ('X','Y','Z')),created_at TEXT NOT NULL,snapshot TEXT NOT NULL)").run();
     db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS one_z_per_shift ON shift_reports(shift_id) WHERE type='Z'").run();
+    db.prepare('CREATE TABLE IF NOT EXISTS relay_config(id INTEGER PRIMARY KEY CHECK(id=1),value TEXT NOT NULL)').run();
+    db.prepare('CREATE TABLE IF NOT EXISTS relay_devices(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,token_hash TEXT NOT NULL UNIQUE,active INTEGER NOT NULL,created_at TEXT NOT NULL)').run();
+    db.prepare('CREATE TABLE IF NOT EXISTS relay_inbox(id INTEGER PRIMARY KEY AUTOINCREMENT,device_id INTEGER NOT NULL,request_key TEXT NOT NULL,kind TEXT NOT NULL,source_id INTEGER NOT NULL,number TEXT NOT NULL,created_at TEXT NOT NULL,digest TEXT NOT NULL,payload TEXT NOT NULL,email_status TEXT NOT NULL,UNIQUE(device_id,request_key))').run();
+    db.prepare('CREATE TABLE IF NOT EXISTS relay_outbox(id INTEGER PRIMARY KEY AUTOINCREMENT,target_key TEXT NOT NULL,request_key TEXT NOT NULL,kind TEXT NOT NULL,source_id INTEGER NOT NULL,number TEXT NOT NULL,snapshot TEXT NOT NULL,pdf TEXT,status TEXT NOT NULL,message TEXT NOT NULL,updated_at TEXT NOT NULL,UNIQUE(target_key,kind,source_id))').run();
     ensureColumn('sales', 'shift_id', 'INTEGER');
     ensureColumn('sales', 'prices_include_tax', 'INTEGER NOT NULL DEFAULT 0');
     ensureColumn('sales', 'credit_due_date', 'TEXT');

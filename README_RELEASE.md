@@ -1,12 +1,20 @@
-# Instalación de POS Control 1.2.1
+# Instalación de POS Control 1.3.0
 
-El escritorio incluye su propio servidor: no necesitas instalar Node.js para usar el instalador. Android e iOS son terminales del mismo servidor. El servidor debe permanecer encendido para cobrar y sincronizar; no se registran ventas sin conexión.
+El escritorio incluye su propio servidor. Android puede usar un servidor externo o uno en el mismo teléfono mediante Termux; iOS continúa como terminal de un servidor externo. El servidor elegido debe permanecer activo. El APK no incluye todavía un backend integrado. [Guía del servidor Android y envío de documentos](docs/ANDROID_SERVIDOR_LOCAL.md).
+
+## Cambios 1.3.0
+
+Selector de servidor local/externo con verificación, lanzador Termux con datos privados separados del código, y envío persistente de copias PDF/JSON de ventas, cotizaciones, créditos, abonos y cortes. Emparejamiento mediante claves revocables por negocio; reintentos sin duplicar copias; correo manual desde el receptor con protección contra reintentos inciertos. No fusiona inventarios ni ventas.
+
+La interfaz es común a web, escritorio y móvil; el lanzador Termux es exclusivo para Android. El teléfono funciona sin computadora mientras Termux permanezca activo. No se generaron APK ni instaladores nuevos 1.3.0 en esta revisión. Falta validar Termux en un teléfono físico y la impresión real.
+
+En 1.3.0 pasaron 69 pruebas del servidor, 4 pruebas de instalación y el recorrido Chromium en tamaños de escritorio y móvil. Se verificó el envío entre dos servidores, incluidos reinicio, respuesta perdida y reintento sin duplicación; el correo se probó con un SMTP local de prueba.
 
 ## Cambios 1.2.1
 
 Cortes X/Y/Z, conciliación de efectivo, separación de tarjetas/transferencias/abonos/devoluciones, historial por negocio y exportación PDF/HTML/JSON. [Instrucciones de cortes](docs/CORTES_DE_CAJA.md).
 
-La nueva interfaz es compartida por web, escritorio y móviles. Es necesario actualizar el servidor y recompilar cada aplicación instalada. No se han generado instaladores ni un APK nuevos de 1.2.1 en esta revisión. El usuario confirmó que el APK anterior 1.2.0 abre y funciona en su teléfono Android conectado al servidor de Windows; esto no verifica todavía los cortes nuevos en el dispositivo. El modo local independiente del teléfono permanece pendiente.
+La nueva interfaz es compartida por web, escritorio y móviles. Es necesario actualizar el servidor y recompilar cada aplicación instalada. No se han generado instaladores ni un APK nuevos de 1.2.1 en esta revisión. El usuario confirmó que el APK anterior 1.2.0 abre y funciona en su teléfono Android conectado al servidor de Windows; esto no verifica todavía los cortes nuevos en el dispositivo. En esa revisión todavía no estaba disponible el lanzador Termux incorporado en 1.3.0.
 
 En 1.2.1 pasaron 64 pruebas del servidor (incluido el recorrido DOM con HTTP real), 4 pruebas de instalación y el recorrido Chromium de ventas con cortes X/Y/Z en vista de escritorio y móvil. Se revisaron visualmente las dos páginas del PDF de corte. No se ha probado una impresora física.
 

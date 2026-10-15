@@ -521,8 +521,9 @@
  
                 <div class="settings-group">
                   <h4>Conexión</h4>
-                  <label>URL base del servidor (PC) <small>ej. http://192.168.1.10:3000</small></label>
+                  <label>URL base del servidor (teléfono, PC o nube) <small>ej. http://192.168.1.10:3000</small></label>
                   <input id="setting-server_base" type="text" placeholder="http://localhost:3000" />
+                  <button id="settings-connection-modes" type="button" class="ghost-btn small">Modo local / servidor externo</button>
                   <button id="test-server-connection-btn" type="button" class="ghost-btn small">Probar conexión</button>
                 </div>
 
@@ -610,6 +611,9 @@
               </div>
             </form>
           </div>
+
+          <div class="panel"><div class="panel-header"><h3>Conexión para enviar copias de documentos</h3><button id="relay-settings-refresh" type="button" class="ghost-btn">Cargar configuración</button></div><p>Solo el administrador configura el destino. Se envían PDF y JSON de ventas, cotizaciones, notas, abonos y cortes. El receptor guarda copias sin modificar ventas, saldos ni existencias.</p><form id="relay-config-form" class="settings-form"><div class="settings-grid"><div class="field-group"><label for="relay-url">Servidor receptor</label><input id="relay-url" type="url" placeholder="https://servidor.example" required /></div><div class="field-group"><label for="relay-business">Identificador del negocio receptor</label><input id="relay-business" value="principal" required /></div><div class="field-group"><label for="relay-token">Clave emitida por el receptor (vacío conserva la actual)</label><input id="relay-token" type="password" autocomplete="off" /></div></div><label><input id="relay-auto" type="checkbox" /> Enviar copias automáticamente cada minuto mientras la app tenga una sesión de caja abierta</label><div class="form-actions"><button class="primary-btn" type="submit">Guardar destino</button><button id="relay-test" class="ghost-btn" type="button">Probar autorización</button><button id="relay-disconnect" class="ghost-btn" type="button">Desconectar</button></div><p id="relay-config-status" role="status"></p></form></div>
+          <div class="panel"><h3>Autorizar dispositivos para recibir documentos aquí</h3><p>En el servidor receptor, crea una clave por teléfono o caja. Comparte esa clave únicamente con el administrador del dispositivo emisor.</p><form id="relay-device-form"><label for="relay-device-name">Nombre del dispositivo</label><input id="relay-device-name" maxlength="100" required /><button class="primary-btn" type="submit">Crear clave de recepción</button></form><label for="relay-created-key">Nueva clave (guárdala antes de salir)</label><input id="relay-created-key" type="password" readonly autocomplete="off" /><button id="relay-show-key" type="button" class="ghost-btn small">Mostrar / ocultar clave</button><p id="relay-key-status" role="status"></p><div id="relay-devices"></div></div>
         </section>
 
         <section id="module-cash" class="module hidden">
@@ -636,6 +640,8 @@
         </section>
 
         <section id="module-documents" class="module hidden">
+          <div class="panel"><div class="panel-header"><h3>Copias entre dispositivos</h3><button id="relay-refresh" type="button" class="ghost-btn">Actualizar</button><button id="relay-send" type="button" class="primary-btn" disabled>Preparar y enviar documentos</button></div><p id="relay-status" role="status">Configura un destino para enviar copias. No se fusionan inventarios ni cuentas.</p><h4>Últimos 200 envíos del destino actual</h4><div class="table-wrap"><table><thead><tr><th>Documento</th><th>Estado</th><th>Detalle</th></tr></thead><tbody id="relay-outbox"></tbody></table></div><h4>Últimas 200 copias recibidas</h4><p>Estas copias no cuentan como ventas de este servidor. Abre el PDF para imprimir o compartir por WhatsApp. El correo se solicita por documento desde el receptor.</p><div class="table-wrap"><table><thead><tr><th>Documento</th><th>Origen</th><th>Correo</th><th>Acciones</th></tr></thead><tbody id="relay-inbox"></tbody></table></div></div>
+
           <div class="panel"><div class="panel-header"><h3>Cuentas por cobrar</h3><button id="credit-refresh" type="button" class="ghost-btn">Actualizar saldos</button></div><p>Ventas al crédito y abonos. Los saldos se calculan con las notas y pagos registrados.</p><input id="credit-search" type="search" placeholder="Buscar cliente o número de venta" aria-label="Buscar cuenta por cobrar" /><p id="credit-accounts-status" role="status"></p><div class="table-wrap"><table><thead><tr><th>Venta</th><th>Cliente</th><th>Vence (UTC)</th><th>Importe</th><th>Acreditado</th><th>Abonado</th><th>Saldo</th><th>Estado</th><th>Acción</th></tr></thead><tbody id="credit-accounts-body"></tbody></table></div></div>
           <div class="panel billing-sales-history">
             <div class="panel-header">
@@ -805,12 +811,15 @@
       <div class="floating-body"><div id="customer-directory-search"></div><p id="customer-directory-status" role="status"></p><div class="table-wrap" tabindex="0" aria-label="Clientes registrados"><table><thead><tr><th>Cliente</th><th>Documento</th><th>Teléfono</th><th>Correo</th><th>Acciones</th></tr></thead><tbody id="customer-directory-body"></tbody></table></div><div class="floating-actions"><button id="directory-new-customer" type="button" class="primary-btn">Registrar cliente</button><button id="directory-general-customer" type="button" class="ghost-btn">Usar cliente general</button></div></div>
     </dialog>
         <dialog id="shift-report-dialog" class="floating-dialog" aria-labelledby="shift-report-title"><div class="panel"><div class="panel-header"><h3 id="shift-report-title">Corte de caja</h3><button type="button" class="ghost-btn" data-close-floating>Cerrar</button></div><p id="shift-report-description"></p><form id="shift-report-form"><div id="shift-count-field" class="field-group"><label for="shift-report-count">Efectivo contado físicamente (sin tarjeta ni transferencia)</label><input id="shift-report-count" type="number" min="0" max="1000000" step="0.01" required /></div><div class="field-group"><label for="shift-report-note">Observación</label><textarea id="shift-report-note" maxlength="500"></textarea></div><div class="field-group"><label for="shift-report-output">Al guardar</label><select id="shift-report-output"><option value="pdf">Generar PDF</option><option value="print">Imprimir (en móvil: compartir PDF)</option><option value="save">Solo guardar en historial</option></select></div><p id="shift-report-status" role="status"></p><button id="shift-report-submit" type="submit" class="primary-btn">Guardar corte</button></form></div></dialog>
+    <dialog id="connection-dialog" class="floating-dialog" aria-labelledby="connection-title"><header class="floating-header"><h3 id="connection-title">Modo de conexión</h3><button type="button" class="icon-close" data-close-floating aria-label="Cerrar">×</button></header><div class="floating-body"><p>Elige dónde se guardan y procesan las ventas. Cambiar de servidor no copia ni fusiona datos.</p><div class="floating-actions"><button id="connection-phone" type="button" class="ghost-btn">Servidor en este teléfono / dispositivo</button><button id="connection-remote" type="button" class="ghost-btn">Servidor externo</button></div><form id="connection-form"><label for="connection-url">Dirección del servidor</label><input id="connection-url" type="url" required /><p id="connection-status" role="status"></p><div class="floating-actions"><button id="connection-test" type="button" class="ghost-btn">Probar conexión</button><button id="connection-save" type="submit" class="primary-btn">Conectar</button></div></form></div></dialog>
     <script src="app_utils.js"></script>
     <script src="pos-math.js"></script>
     <script src="native-platform.js"></script>
     <script src="credit-ui.js"></script>
     <script src="enhancements.js"></script>
     <script src="business-ui.js"></script>
+    <script src="connection-ui.js"></script>
+    <script src="relay-ui.js"></script>
     <script src="app.js"></script>
     <script src="app_exec_pin.js"></script>
 
