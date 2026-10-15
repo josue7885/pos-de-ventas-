@@ -1,0 +1,20 @@
+name: POS checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  server:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm run setup:server
+      - run: npm test
+      - run: npm audit --prefix server --audit-level=high

@@ -1,42 +1,60 @@
-Android build & install guide (Windows)
+## Actualización 1.3.0: teléfono como servidor
 
-This README explains how to build and install the Android app produced by the Capacitor + Electron POS project on Windows. It assumes the project root is the folder that contains this README and the "android" Capacitor project.
+El servidor completo puede iniciarse mediante Termux en Android. En la app, elige **Configurar servidor → Servidor en este teléfono / dispositivo** y conecta a `http://127.0.0.1:3000`. Termux debe permanecer activo. Este modo conserva los datos aparte de la computadora y requiere instalar el servidor una vez.
 
-Prerequisites
-- Node.js 18.x (project tested on Node 18)
-- npm (comes with Node)
-- Java JDK 11+ installed and JAVA_HOME set
-- Android SDK & Android Studio installed
-- Android SDK platform-tools (adb) in PATH
-- Gradle wrapper is included in android/ (Android Studio created it)
-- Capacitor and CLI are installed locally (npx cap commands are used)
+Lee [los pasos de Termux, respaldos y envío de documentos](docs/ANDROID_SERVIDOR_LOCAL.md). Se agregó envío de copias a otro servidor y recepción PDF/JSON/correo. Esto no fusiona inventarios. La validación física en Android está pendiente; los pasos siguientes siguen aplicando para compilar el cliente APK actualizado.
 
-Quick steps (debug APK)
-1. From project root open PowerShell (Run as Administrator if you have permission issues).
-2. Sync web assets into the native project and build:
-   .\scripts\build-android-debug.ps1
+# Android, iPhone y iPad — POS Control 1.3.0
 
-3. Install the resulting APK to an emulator or device (emulator must be running):
-   .\scripts\install-android-debug.ps1
+El APK y la aplicación iOS son clientes: no contienen Node.js ni una base de ventas. En Android, Termux puede ejecutar el servidor en el mismo teléfono con su propia base. En iOS se utiliza un servidor externo. Configura la dirección en la pantalla de acceso; el servidor elegido debe permanecer activo. Consulta [instalación y datos](README_RELEASE.md).
 
-4. Alternatively open Android Studio to inspect and produce signed builds:
-   .\scripts\open-android-studio.ps1
-   - In Android Studio choose Build -> Generate Signed Bundle / APK to create a signed release.
+## Android
 
-Notes and production signing
-- For production release you must create an Android keystore and sign the app. Use Android Studio "Generate Signed Bundle / APK" and provide the keystore and passwords.
-- Do NOT commit keystore or passwords to source control. Keep them in a secure place or use CI secret storage.
+Requiere Node.js 24, Java 21, Android Studio compatible con Capacitor 8, SDK 36 y Build Tools 36.0.0.
 
-Server URL and configuration
-- The Android app is a web wrapper and needs to connect to the local POS server when running on a device. If building an APK that will connect to a development server running on the host machine, set the server base URL in the app configuration (in app.js or settings) to the host IP address (e.g., http://192.168.1.42:3000) and ensure the device and the server machine are on the same network.
-- For production standalone use, include the server inside the app (Electron/embedded server) or deploy the server remotely with HTTPS and configure the app to point to that URL.
+```powershell
+npm ci
+npm run android:sync
+npm run android:open
+```
 
-Debugging and common issues
-- adb not found: ensure platform-tools are in PATH (e.g., C:\Users\<you>\AppData\Local\Android\Sdk\platform-tools)
-- Gradle build fails: open the android project in Android Studio and accept SDK/gradle updates; use the IDE to resolve missing SDK components.
-- Server connectivity: device/emulator must reach the server via network. Use `adb reverse tcp:3000 tcp:3000` for emulators to map host port.
+`android:sync` crea el proyecto si falta y sincroniza recursos y complementos. En Android Studio ejecuta en un dispositivo o genera un APK. También puedes compilar desde PowerShell:
 
-CI / automated builds
-- For CI/CD, keep signing artifacts (keystore, PFX) in secure secret storage and use Gradle CLI to assemble and sign.
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+    Push-Location android
+    try {
+        .\gradlew.bat assembleDebug
+        if ($LASTEXITCODE -ne 0) { throw 'Falló la compilación Android.' }
+    } finally { Pop-Location }
+}
+```
 
-If you want, can add a small Gradle properties template to help configure signing and a PowerShell script to create a release build (signed) — tell me and it will be added.
+El APK queda en `android/app/build/outputs/apk/debug/app-debug.apk`. Para distribución utiliza **Generate Signed Bundle / APK** en Android Studio, con tu propia clave estable. El APK de Actions sirve para pruebas; su clave puede cambiar entre ejecuciones. El servidor conserva las ventas, pero desinstalar la app puede borrar la URL y operaciones pendientes de confirmación: resuélvelas antes.
+
+## iPhone / iPad
+
+Necesitas macOS y Xcode 26 o posterior, además de Node.js 24:
+
+```sh
+npm ci
+npm run ios:sync
+npm run ios:open
+```
+
+El proyecto usa Swift Package Manager. En Xcode selecciona el equipo de firma y un identificador de app propio para distribuir. Comprueba **Signing & Capabilities**, selecciona un iPhone/iPad o simulador y ejecuta. Para TestFlight/App Store usa **Product → Archive → Distribute App**, tu cuenta Apple y perfiles válidos.
+
+El script añade el texto de acceso a red local y el manifiesto de privacidad de Filesystem (`FileTimestamp`, motivo `C617.1`) como recurso del proyecto. Revisa también las declaraciones de privacidad según el uso real de tu negocio antes de distribuir.
+
+Actions compila una aplicación de **simulador**, sin firma; ese ZIP no se instala en iPhone/iPad. Usa HTTPS con certificado válido para el servidor. Mientras preparas la firma nativa puedes abrir la URL del servidor en Safari.
+
+## PDF, JSON, impresión y WhatsApp
+
+Los recursos móviles incluyen el puente de Capacitor y complementos oficiales Filesystem, Share y Browser. PDF, JSON y exportaciones abren **Guardar o compartir**; desde ahí puedes elegir WhatsApp, correo, Archivos o impresión según el sistema y las apps instaladas. El botón de ticket utiliza el PDF en móviles. No hay envío silencioso por WhatsApp: debes elegir el destinatario y confirmar.
+
+Los documentos compartidos quedan temporalmente en caché para que la app receptora pueda leerlos; al compartir de nuevo se eliminan copias POS de más de 24 horas. El sistema también puede limpiar su caché. Las ventas y los documentos originales permanecen en el servidor.
+
+El correo SMTP configurado sigue saliendo del backend. La acción de compartir del sistema es adicional y no confirma entrega SMTP.
+
+`www`, `android` e `ios` son directorios generados e ignorados por Git. Conserva cambios nativos personalizados antes de regenerarlos; no elimines proyectos firmados sin respaldar sus ajustes. El script no incorpora bases, PIN ni contraseñas.

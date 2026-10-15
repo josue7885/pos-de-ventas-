@@ -1,23 +1,10 @@
 const STORAGE_KEY = 'pos_control_state_v1';
 
 const DEFAULT_STATE = {
-  employees: [
-    { id: 1, name: 'Administrador', pin: '1234', role: 'admin' },
-    { id: 2, name: 'Cajera', pin: '4321', role: 'cajero' },
-  { id: 3, name: 'Cocina', pin: '1111', role: 'cocina' },
-  { id: 4, name: 'Mesero', pin: '2222', role: 'mesero' }
-],
-rooms: [{ id: 'salon-principal', name: 'Salón principal' }],
-products: [
-    { id: 1, name: 'Café Americano', category: 'Bebidas', price: 3.5, stock: 25 },
-    { id: 2, name: 'Capuccino', category: 'Bebidas', price: 4.5, stock: 18 },
-    { id: 3, name: 'Sandwich de pollo', category: 'Comida', price: 8.5, stock: 15 },
-    { id: 4, name: 'Hamburguesa', category: 'Comida', price: 9.75, stock: 12 },
-    { id: 5, name: 'Pasta al pesto', category: 'Comida', price: 11.5, stock: 10 },
-    { id: 6, name: 'Agua 500ml', category: 'Bebidas', price: 1.75, stock: 30 },
-    { id: 7, name: 'Refresco 600ml', category: 'Bebidas', price: 2.25, stock: 26 },
-    { id: 8, name: 'Galletas', category: 'Snacks', price: 2.5, stock: 20 }
-  ],
+  employees: [],
+  rooms: [{ id: 'salon-principal', name: 'Salón principal' }],
+  products: [],
+  categories: [],
   sales: [],
   companySettings: {},
   orders: [],
@@ -79,48 +66,35 @@ function ensureRestaurantState() {
   saveState();
 }
 
-const currency = (value) => new Intl.NumberFormat('es-SV', { style: 'currency', currency: 'USD' }).format(value || 0);
+const currency = (value) => new Intl.NumberFormat(state.companySettings.number_locale||'es-SV', { style: 'currency', currency: state.companySettings.currency_code||'USD' }).format(value || 0);
 
-const DEFAULT_API_BASE = 'http://localhost:3000';
-const API_BASE = `${localStorage.getItem('pos_api_base') || DEFAULT_API_BASE}/api`;
+const API_BASE = getApiUrl('').replace(/\/$/, '');
 
-function getAuthHeaders(contentType = 'application/json') {
-  const token = localStorage.getItem('pos_token');
-  const base = {};
-  if (contentType) base['Content-Type'] = contentType;
-  if (token) base['Authorization'] = `Bearer ${token}`;
-  return base;
-}
 
 function deepClone(data) {
   return JSON.parse(JSON.stringify(data));
 }
 
 function loadState() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) {
-      return deepClone(DEFAULT_STATE);
-    }
-    const parsed = JSON.parse(saved);
-    const base = { ...deepClone(DEFAULT_STATE), ...parsed };
-    base.rooms = Array.isArray(parsed.rooms) && parsed.rooms.length > 0 ? parsed.rooms : deepClone(DEFAULT_STATE.rooms);
-    return base;
-  } catch (error) {
-    return deepClone(DEFAULT_STATE);
+  // Preserve legacy business records for manual reconciliation, without plaintext PINs/secrets.
+  const legacy=localStorage.getItem(STORAGE_KEY);
+  if (legacy) {
+    try {
+      const old=JSON.parse(legacy), archive={};
+      for (const key of ['sales','products','shift','tables','rooms','orders']) if(old[key]!==undefined)archive[key]=old[key];
+      archive.employees=(old.employees||[]).map(({id,name,role})=>({id,name,role}));
+      localStorage.setItem(`${STORAGE_KEY}:archive:${Date.now()}`,JSON.stringify(archive));
+      localStorage.removeItem(STORAGE_KEY);
+    } catch (_) { console.warn('No se pudo archivar la caché anterior; se conserva sin importar.'); }
   }
+  localStorage.removeItem('pos_token');
+  localStorage.removeItem('executive_pin_hash');
+  return deepClone(DEFAULT_STATE);
 }
-
-function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-}
+function saveState() { /* Server is authoritative; pending requests have their own journal. */ }
 
 function getCompanySettings() {
   return state.companySettings || {};
-}
-
-function canAccessExecutivePanel() {
-  return Boolean(currentEmployee && currentEmployee.role === 'admin');
 }
 
 function canManageUserAccounts() {
@@ -129,13 +103,13 @@ function canManageUserAccounts() {
 
 async function loadCompanySettings() {
   try {
-    const res = await fetch(`${API_BASE}/settings`);
+    const res = await posFetch(`${API_BASE}/settings`);
     if (!res.ok) return;
     const data = await res.json();
     const settings = data.settings || data;
     state.companySettings = settings;
     applyCompanySettings(settings);
-    fillCompanySettingsForm(settings);
+    fillCompanySettingsForm(settings);applyBusinessConfiguration();
     saveState();
   } catch (error) {
     console.warn('No se pudo cargar la configuración de empresa:', error.message);
@@ -184,7 +158,7 @@ function getEmployeeByPin(pin) {
 
 async function fetchOrdersFromServer() {
   try {
-    const res = await fetch(`${API_BASE}/orders`);
+    const res = await posFetch(`${API_BASE}/orders`);
     if (!res.ok) return;
     const data = await res.json();
     state.orders = data.orders || [];
@@ -198,79 +172,63 @@ async function fetchOrdersFromServer() {
 }
 
 // Realtime orders via Server-Sent Events
+let syncTimer = null;
+let syncSequence = 0;
+let lastSnapshot = '';
+async function syncFromServer() {
+  if (!currentEmployee) return;
+  const seq = ++syncSequence;
+  const userId = currentEmployee.id;
+  const data = await apiRequest('/sync');
+  if (seq !== syncSequence || !currentEmployee || currentEmployee.id !== userId) return;
+  stockLastUpdated=Date.now();stockSyncError=false;
+  const stamp=JSON.stringify([data.products,data.sales,data.shift,data.orders,data.user,data.rooms,data.tables,data.categories,data.settings]);
+  if (stamp===lastSnapshot) { renderHome();renderSaleWorkspace();renderStockSearch();if(activeModule==='documents')refreshDocuments(); return; }
+  lastSnapshot=stamp;
+  currentEmployee=data.user;
+  if(data.settings){state.companySettings=data.settings;applyCompanySettings(data.settings);applyBusinessConfiguration();}
+  state.products=data.products;state.categories=data.categories||[];
+  state.sales=data.sales.map(s=>({...s,id:s.id,employeeName:s.employee_name,paymentMethod:s.payment_method,total:s.total,subtotal:s.subtotal,tax:s.tax,items:s.items.map(i=>({...i,id:i.product_id})),customerName:s.customer_name,invoiceNumber:s.invoice_number,discount:s.discount||0,createdAt:s.created_at,receivedAmount:s.received_amount,change:s.change_amount}));
+  state.shift=data.shift;
+  state.orders=data.orders;state.rooms=data.rooms;state.tables=data.tables;
+  const draftFields=Array.from(document.querySelectorAll('#module-reports input, #module-reports textarea, #module-reports select')).map(el=>({id:el.id,value:el.value,checked:el.checked}));
+  const focused=document.activeElement?.id;
+  const category=document.getElementById('category-filter')?.value;
+  renderCategoryFilter();
+  if(category && document.getElementById('category-filter')) document.getElementById('category-filter').value=category;
+  renderProducts();renderSaleWorkspace();renderStockSearch();renderInventory();renderCashPanel();renderReports();renderHome();
+  for(const field of draftFields){const el=document.getElementById(field.id);if(el){el.value=field.value;if(el.type==='checkbox')el.checked=field.checked;}}
+  if(focused) document.getElementById(focused)?.focus();
+  renderOrders();renderKitchenOrders();renderTables();updateHeader();renderNav();
+  if(activeModule==='documents')refreshDocuments();
+}
 function initOrderEventStream() {
-  try {
-    const url = `${API_BASE}/orders/stream`;
-    const es = new EventSource(url);
-    es.addEventListener('orders', (msg) => {
-      try {
-        const payload = JSON.parse(msg.data || '{}');
-        if (!payload || !payload.payload) return;
-        const p = payload.payload;
-        // event types: new_order, order_update
-        if (payload.event === 'new_order') {
-          // prepend new order
-          state.orders = [p, ...state.orders.filter((o) => o.id !== p.id)];
-        } else if (payload.event === 'order_update') {
-          state.orders = state.orders.map((o) => (o.id === p.id ? p : o));
-          if (!state.orders.find((o) => o.id === p.id)) state.orders.unshift(p);
-        }
-        renderOrders();
-        renderKitchenOrders();
-        renderTables();
-        saveState();
-      } catch (e) {
-        console.warn('SSE parse error', e.message);
-      }
-    });
-    es.onopen = () => console.log('Connected to orders stream');
-    es.onerror = (e) => console.warn('Orders stream error', e);
-  } catch (e) {
-    console.warn('Could not open orders stream', e.message);
-  }
+  stopSync();
+  syncTimer=setInterval(() => syncFromServer().catch(error => {
+    if(typeof document==='undefined'||!currentEmployee)return;
+    const badge=document.getElementById('shift-status');
+    if (badge) badge.textContent='Sin sincronización';
+    stockSyncError=true;renderStockSearch();renderHome();
+    if (error.status===401 || error.status===404) expireSession();
+  }), 3000);
 }
-function getAuthHeaders(contentType = 'application/json') {
-  const token = localStorage.getItem('pos_token');
-  const headers = {};
-  if (contentType) headers['Content-Type'] = contentType;
-  if (token) headers['Authorization'] = 'Bearer ' + token;
-  return headers;
+function stopSync() { clearInterval(syncTimer);syncTimer=null;++syncSequence;lastSnapshot=''; }
+function expireSession() {
+  stopSync();resetEnhancements();cart=[];pendingSale=null;currentEmployee=null;state=deepClone(DEFAULT_STATE);lastSnapshot='';++syncSequence;sessionStorage.removeItem('pos_token');showLogin();
+  const error=document.getElementById('login-error');
+  error.textContent='La sesión venció. Inicia sesión nuevamente.';error.classList.remove('hidden');
 }
 
-function addNewRoom() {
-  const roomName = prompt('Nombre del salón:', 'Salón nuevo');
-  if (!roomName || !roomName.trim()) return;
-
-  const newRoom = {
-    id: `salon-${Date.now()}`,
-    name: roomName.trim()
-  };
-
-  state.rooms.push(newRoom);
-  saveState();
-  renderTables();
+async function addNewRoom() {
+  const name=prompt('Nombre del salón:');if(!name)return;
+  try { await apiRequest('/rooms',{method:'POST',body:JSON.stringify({name})});await syncFromServer(); }
+  catch(error){alert(error.message);}
 }
-
-function addTableToCurrentRoom() {
-  const roomSelect = document.getElementById('table-room-filter');
-  const roomId = roomSelect ? roomSelect.value : (state.rooms[0] || {}).id;
-  if (!roomId) return;
-
-  const nextNumber = (state.tables || []).filter((table) => table.room === roomId).length + 1;
-  const tableName = prompt('Nombre o número de la nueva mesa:', `Mesa ${nextNumber}`) || `Mesa ${nextNumber}`;
-
-  state.tables.push({
-    id: Date.now(),
-    room: roomId,
-    name: tableName,
-    status: 'libre',
-    waiter: '',
-    customer: '',
-    notes: ''
-  });
-
-  saveState();
-  renderTables();
+async function addTableToCurrentRoom() {
+  const room=document.getElementById('table-room-filter').value;
+  const name=prompt('Nombre de la mesa:');if(!name)return;
+  try { await apiRequest('/tables',{method:'POST',body:JSON.stringify({room,name})});await syncFromServer(); }
+  catch(error){alert(error.message);}
 }
 
 function renderTables() {
@@ -282,7 +240,7 @@ function renderTables() {
   const selectedRoom = roomFilter ? roomFilter.value : (rooms[0] || {}).id;
 
   if (roomFilter) {
-    roomFilter.innerHTML = rooms.map((room) => `<option value="${room.id}">${room.name}</option>`).join('');
+    roomFilter.innerHTML = rooms.map((room) => `<option value="${room.id}">${escapeHtml(room.name)}</option>`).join('');
     if (!rooms.some((room) => room.id === selectedRoom) && rooms.length > 0) {
      roomFilter.value = rooms[0].id;
     } else if (rooms.length > 0) {
@@ -296,11 +254,11 @@ function renderTables() {
   grid.innerHTML = visibleTables.map((table) => `
     <div class="table-card ${table.status}">
       <div class="table-header">
-        <strong>${table.name}</strong>
+        <strong>${escapeHtml(table.name)}</strong>
         <span class="table-badge ${table.status}">${table.status === 'libre' ? 'Libre' : table.status === 'ocupada' ? 'Ocupada' : table.status === 'pedido' ? 'Pedido' : 'Lista'}</span>
       </div>
-      <p>${table.customer || 'Sin cliente'}</p>
-      <small>${table.waiter || 'Sin mesero'}</small>
+      <p>${escapeHtml(table.customer || 'Sin cliente')}</p>
+      <small>${escapeHtml(table.waiter || 'Sin mesero')}</small>
       <div class="table-actions">
         <button class="ghost-btn small" data-table-action="ocupada" data-table-id="${table.id}">Ocupar</button>
         <button class="primary-btn small" data-table-action="pedido" data-table-id="${table.id}">Pedido</button>
@@ -310,18 +268,10 @@ function renderTables() {
   `).join('');
 
   grid.querySelectorAll('[data-table-action]').forEach((button) => {
-    button.addEventListener('click', () => {
-     const tableId = Number(button.dataset.tableId);
-     const newStatus = button.dataset.tableAction;
-     const table = (state.tables || []).find((item) => item.id === tableId);
-     if (!table) return;
-     table.status = newStatus;
-     if (newStatus === 'libre') {
-       table.customer = '';
-       table.waiter = '';
-     }
-     saveState();
-     renderTables();
+    button.addEventListener('click', async () => {
+      const table=state.tables.find(t=>t.id===Number(button.dataset.tableId));if(!table)return;
+      try { await apiRequest(`/tables/${table.id}`,{method:'PATCH',body:JSON.stringify({status:button.dataset.tableAction,expectedStatus:table.status})});await syncFromServer(); }
+      catch(error){alert(error.message);await syncFromServer().catch(()=>{});}
     });
   });
 }
@@ -335,15 +285,15 @@ function renderOrders() {
   }
 
   list.innerHTML = state.orders.map((order) => {
-    const items = (order.items || []).map((item) => `${item.name} x ${item.qty}`).join(', ');
+    const items = (order.items || []).map((item) => `${escapeHtml(item.name)} x ${item.qty}`).join(', ');
     return `
       <div class="order-card">
         <div class="order-meta">
           <strong>Orden #${order.id}</strong>
           <span class="status-pill ${order.status}">${order.status}</span>
         </div>
-        <p><b>Mesa:</b> ${order.table_number || 'Mostrador'}</p>
-        <p><b>Mesero:</b> ${order.employee_name || 'Sin asignar'}</p>
+        <p><b>Mesa:</b> ${escapeHtml(order.table_number || 'Mostrador')}</p>
+        <p><b>Mesero:</b> ${escapeHtml(order.employee_name || 'Sin asignar')}</p>
         <p><b>Productos:</b> ${items || 'Sin productos'}</p>
         <p><b>Total:</b> ${currency(order.total || 0)}</p>
         <button class="ghost-btn small" data-order-id="${order.id}" data-order-status="ready">Marcar lista</button>
@@ -373,15 +323,15 @@ function renderKitchenOrders() {
   }
 
   list.innerHTML = kitchenOrders.map((order) => {
-    const items = (order.items || []).map((item) => `${item.name} x ${item.qty}`).join(', ');
+    const items = (order.items || []).map((item) => `${escapeHtml(item.name)} x ${item.qty}`).join(', ');
     return `
       <div class="order-card" id="kitchen-order-${order.id}">
         <div class="order-meta">
           <strong>Orden #${order.id}</strong>
           <span class="status-pill ${order.status}">${order.status}</span>
         </div>
-        <p><b>Mesa:</b> ${order.table_number || 'Mostrador'}</p>
-        <p><b>Cliente:</b> ${order.customer_name || 'Cliente'}</p>
+        <p><b>Mesa:</b> ${escapeHtml(order.table_number || 'Mostrador')}</p>
+        <p><b>Cliente:</b> ${escapeHtml(order.customer_name || 'Cliente')}</p>
         <p><b>Productos:</b> ${items || 'Sin productos'}</p>
         <div class="order-actions">
           <button class="primary-btn small" data-kitchen-id="${order.id}" data-kitchen-status="preparing">Preparando</button>
@@ -415,7 +365,7 @@ function renderKitchenOrders() {
 
 async function updateOrderStatus(orderId, status) {
   try {
-    const res = await fetch(`${API_BASE}/orders/${orderId}/status`, {
+    const res = await posFetch(`${API_BASE}/orders/${orderId}/status`, {
       method: 'PATCH',
       headers: getAuthHeaders(),
       body: JSON.stringify({ status })
@@ -428,6 +378,7 @@ async function updateOrderStatus(orderId, status) {
 }
 
 async function sendCurrentCartToKitchen() {
+  if (saleInFlight || pendingSale) return alert('Primero confirma la venta pendiente.');
   if (!currentEmployee) {
     alert('Debes iniciar sesión.');
     return;
@@ -440,16 +391,17 @@ async function sendCurrentCartToKitchen() {
   const customerName = (document.getElementById('billing-customer-name')?.value || document.getElementById('customer-name')?.value || '').trim() || 'Cliente';
   const notes = (document.getElementById('billing-customer-notes')?.value || document.getElementById('customer-address')?.value || '').trim() || '';
 
-  const assignedTable = reserveTableForOrder('', customerName);
+  const assignedTable = getAvailableTableForOrder();
   const tableNumber = assignedTable ? assignedTable.name : 'Mostrador';
 
   try {
-    const res = await fetch(`${API_BASE}/orders`, {
+    const res = await posFetch(`${API_BASE}/orders`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({
         employeeName: currentEmployee.name,
         tableNumber,
+        tableId: assignedTable?.id || null,
         customerName,
         notes,
         items: cart.map((item) => ({ id: item.id, name: item.name, price: item.price, qty: item.qty }))
@@ -463,7 +415,7 @@ async function sendCurrentCartToKitchen() {
     const kitchenItems = cart.map((item) => ({ name: item.name, qty: item.qty }));
     cart = [];
     renderCart();
-    await fetchOrdersFromServer();
+    await syncFromServer();
     printKitchenTicket({
       tableNumber,
       customerName,
@@ -478,13 +430,14 @@ async function sendCurrentCartToKitchen() {
 }
 
 function showLogin() {
+  clearRelaySecrets();
   document.getElementById('login-screen').classList.remove('hidden');
   document.getElementById('app-shell').classList.add('hidden');
 }
 
 function showApp() {
   document.getElementById('login-screen').classList.add('hidden');
-  document.getElementById('app-shell').classList.remove('hidden');
+  document.getElementById('app-shell').classList.remove('hidden');renderHome();
 }
 
 function updateHeader() {
@@ -506,23 +459,15 @@ function updateHeader() {
 
 function renderEmployeeOptions() {
   const select = document.getElementById('employee-select');
-  select.innerHTML = state.employees
-    .map((employee) => `<option value="${employee.id}">${employee.name} - ${employee.role}</option>`)
+  select.innerHTML = state.employees.filter(u=>u.active!==0)
+    .map((employee) => `<option value="${employee.id}">${escapeHtml(employee.name)} - ${employee.role}</option>`)
     .join('');
 }
 
-async function loadCustomers() {
-  try {
-    const res = await fetch(`${API_BASE}/customers`, { headers: getAuthHeaders(null) });
-    if (!res.ok) return;
-    const data = await res.json();
-    const customers = data.customers || [];
-    const select = document.getElementById('customer-select');
-    if (!select) return;
-    select.innerHTML = '<option value="">Cliente general / consumidor final</option>' + customers.map((customer) => `<option value="${customer.id}">${customer.full_name} - ${customer.nit || 'Sin NIT'}</option>`).join('');
-  } catch (error) {
-    console.warn('No se pudieron cargar clientes:', error.message);
-  }
+async function loadCustomers(selected=document.getElementById('customer-select')?.value || '') {
+  const userId=currentEmployee?.id;
+  try { const data=await apiRequest('/customers');if(currentEmployee?.id!==userId)return;customerDirectory=data.customers;renderCustomerDirectory(selected); }
+  catch(error) { console.warn('No se pudieron cargar clientes:',error.message); }
 }
 
 function getCustomerPayloadFromForm() {
@@ -540,7 +485,7 @@ function getCustomerPayloadFromForm() {
   return {
     customerId: customerId || null,
     customerName: customerName || 'Cliente general',
-    customerNit: customerType === 'credito_fiscal' ? (customerNit || 'CF') : 'CF',
+    customerNit: customerNit || 'CF',
     customerEmail,
     customerPhone,
     customerAddress,
@@ -568,6 +513,8 @@ function getCustomerPayloadFromForm() {
 }
 
 async function saveCustomerFromForm() {
+  if(operationLocked()||!availableModules().includes('pos'))return;
+  const saveButton=document.getElementById('save-customer-btn');if(saveButton.disabled)return;
   const nameField = document.getElementById('billing-customer-name') || document.getElementById('customer-name');
   const nitField = document.getElementById('billing-customer-nit') || document.getElementById('customer-nit');
   const emailField = document.getElementById('billing-customer-email') || document.getElementById('customer-email');
@@ -598,11 +545,12 @@ async function saveCustomerFromForm() {
     return;
   }
 
+  saveButton.disabled=true;
   try {
     const customerId = document.getElementById('customer-select')?.value;
     const method = customerId ? 'PUT' : 'POST';
     const url = customerId ? `${API_BASE}/customers/${customerId}` : `${API_BASE}/customers`;
-    const res = await fetch(url, {
+    const res = await posFetch(url, {
       method,
       headers: getAuthHeaders(),
       body: JSON.stringify(form)
@@ -630,11 +578,11 @@ async function saveCustomerFromForm() {
         select.value = String(customer.id);
       }
       alert('Cliente guardado correctamente.');
-      await loadCustomers();
+      await loadCustomers(String(customer.id));updateCustomerSummary();closeFloating('billing-more');
     }
   } catch (error) {
     alert(error.message || 'No se pudo guardar el cliente.');
-  }
+  } finally {saveButton.disabled=false;}
 }
 
 function updateMiniTicketTotals() {
@@ -653,8 +601,12 @@ function openBillingModal(action = 'payment') {
     return;
   }
 
+  closeAllFloating(false);
   const totals = getCartTotals();
   const modal = document.getElementById('billing-modal');
+  modal.classList.remove('customer-only');
+  const onCredit=document.getElementById('billing-payment-method').value==='credito';
+  document.getElementById('billing-modal-title').textContent=onCredit?'Confirmar venta al crédito':'Confirmar cobro';
   const modalCustomerSummary = document.getElementById('modal-customer-summary');
   const modalTotalSummary = document.getElementById('modal-total-summary');
   const confirmBtn = document.getElementById('confirm-billing-btn');
@@ -669,12 +621,12 @@ function openBillingModal(action = 'payment') {
   }
 
   const cashReceived = document.getElementById('billing-cash-received') || document.getElementById('cash-received');
-  if (cashReceived) {
+  if (cashReceived && !onCredit && !cashReceived.value) {
     cashReceived.value = totals.total.toFixed(2);
   }
 
   if (confirmBtn) {
-    confirmBtn.textContent = action === 'kitchen' ? 'Enviar a cocina' : 'Confirmar cobro';
+    confirmBtn.textContent = action === 'kitchen' ? 'Enviar a cocina' : onCredit?'Registrar deuda':'Confirmar cobro';
   }
 
   if (modal) {
@@ -705,12 +657,6 @@ function confirmBillingAction() {
     return;
   }
 
-  const customerName = (document.getElementById('billing-customer-name')?.value || '').trim() || 'Cliente';
-  const reservedTable = reserveTableForOrder('', customerName);
-  if (reservedTable) {
-    document.getElementById('billing-customer-name') && (document.getElementById('billing-customer-name').value = customerName);
-  }
-
   processSale();
 }
 
@@ -730,72 +676,86 @@ function printWindow(content, title) {
 }
 
 function printKitchenTicket(order) {
-  const itemsHtml = (order.items || []).map((item) => `<tr><td>${item.name}</td><td>x${item.qty}</td></tr>`).join('');
+  const itemsHtml = (order.items || []).map((item) => `<tr><td>${escapeHtml(item.name)}</td><td>x${item.qty}</td></tr>`).join('');
   const content = `
     <h2>Orden de cocina</h2>
-    <p><strong>Mesa:</strong> ${order.tableNumber || 'Mostrador'}</p>
-    <p><strong>Cliente:</strong> ${order.customerName || 'Cliente'}</p>
-    <p><strong>Empleado:</strong> ${order.employeeName || 'Sistema'}</p>
+    <p><strong>Mesa:</strong> ${escapeHtml(order.tableNumber || 'Mostrador')}</p>
+    <p><strong>Cliente:</strong> ${escapeHtml(order.customerName || 'Cliente')}</p>
+    <p><strong>Empleado:</strong> ${escapeHtml(order.employeeName || 'Sistema')}</p>
     <table><thead><tr><th>Producto</th><th>Cant.</th></tr></thead><tbody>${itemsHtml || '<tr><td colspan="2">Sin productos</td></tr>'}</tbody></table>
-    ${order.notes ? `<p><strong>Nota:</strong> ${order.notes}</p>` : ''}
+    ${order.notes ? `<p><strong>Nota:</strong> ${escapeHtml(order.notes)}</p>` : ''}
     <p><strong>Fecha:</strong> ${new Date().toLocaleString()}</p>
   `;
   printWindow(content, 'Orden de cocina');
 }
 
 function openKitchenDisplay() {
- const popup = window.open('kitchen-display.html?type=kitchen', 'kitchenDisplay', 'width=1400,height=900,noopener');
+ const popup = window.open('kitchen-display.html?business='+encodeURIComponent(getBusinessId()), 'kitchenDisplay', 'width=1400,height=900,noopener');
  if (popup) popup.focus();
 }
 
 function openCustomerDisplay() {
- const popup = window.open('customer-display.html?type=customer', 'customerDisplay', 'width=1100,height=760,noopener');
+ const popup = window.open('customer-display.html?business='+encodeURIComponent(getBusinessId()), 'customerDisplay', 'width=1100,height=760,noopener');
  if (popup) popup.focus();
 }
 
+const navigationGroups = [
+  {id:'home',label:'Inicio',modules:[['home','Resumen']]},
+  {id:'cash',label:'Caja',modules:[['pos','Venta'],['tables','Mesas'],['orders','Órdenes'],['kitchen','Cocina'],['cash','Turno y cierre']]},
+  {id:'documents',label:'Documentos',modules:[['documents','Comprobantes'],['inventory','Inventario'],['reports','Reportes']]},
+  {id:'settings',label:'Configuración',modules:[['settings','General'],['businesses','Negocios'],['users','Usuarios']]}
+];
+const roleModules = {
+  admin:['businesses','documents','pos','tables','orders','kitchen','inventory','cash','reports','users','settings'],
+  gerente:['documents','inventory','pos','tables','orders','kitchen','reports','cash','users'],
+  cajero:['documents','pos','tables','orders','cash'],
+  mesero:['pos','tables','orders','kitchen'],
+  cocina:['kitchen'],
+  contador:['documents','reports','cash']
+};
+let rememberedModule = {};
+function availableModules(){
+  return (currentEmployee ? ['home',...(roleModules[currentEmployee.role] || [])] : []).filter(moduleEnabled);
+}
+function selectWorkspace(id){
+  const group=navigationGroups.find(g=>g.id===id),allowed=availableModules();
+  if(!group)return;
+  const options=group.modules.map(([module])=>module).filter(module=>allowed.includes(module));
+  if(options.length)setActiveModule(options.includes(rememberedModule[id])?rememberedModule[id]:options[0]);
+}
 function renderNav() {
-  const nav = document.getElementById('nav-menu');
-  const visibleSections = {
-    admin: ['pos', 'tables', 'orders', 'kitchen', 'inventory', 'cash', 'reports', 'users', 'settings'],
-    cajero: ['pos', 'tables', 'orders', 'cash'],
-    mesero: ['pos', 'tables', 'orders', 'kitchen'],
-    cocina: ['kitchen'],
-    gerente: ['pos', 'tables', 'orders', 'kitchen', 'reports', 'cash', 'users'],
-    contador: ['reports', 'cash']
+  const allowed=availableModules();
+  const groups=navigationGroups.filter(g=>g.modules.some(([id])=>allowed.includes(id)));
+  if(!allowed.includes(activeModule))activeModule=groups.flatMap(g=>g.modules).find(([id])=>allowed.includes(id))?.[0] || '';
+  const activeGroup=groups.find(g=>g.modules.some(([id])=>id===activeModule));
+  if(activeGroup)rememberedModule[activeGroup.id]=activeModule;
+  const focused=document.activeElement;
+  const focusedModule=focused?.closest('#module-tabs')?focused.dataset.module:null;
+  const focusedGroup=focused?.closest('#nav-menu')?focused.dataset.workspace:null;
+  const nav=document.getElementById('nav-menu');
+  nav.innerHTML=groups.map(g=>`<button type="button" class="nav-btn ${g===activeGroup?'active':''}" data-workspace="${g.id}" title="${g.label}" aria-label="${g.label}" ${g===activeGroup?'aria-current="page"':''}>${navigationIcon(g.id)}<span class="nav-label">${g.label}</span></button>`).join('');
+  nav.querySelectorAll('[data-workspace]').forEach(b=>b.addEventListener('click',()=>selectWorkspace(b.dataset.workspace)));
+  document.getElementById('workspace-title').textContent=activeGroup?.label || 'Sin módulos disponibles';
+  const tabs=document.getElementById('module-tabs');
+  tabs.setAttribute('aria-label',activeGroup?.label || 'Secciones');
+  tabs.innerHTML=(activeGroup?.modules || []).filter(([id])=>allowed.includes(id)).map(([id,label])=>`<button type="button" id="tab-${id}" class="module-tab-btn ${id===activeModule?'active':''}" role="tab" aria-selected="${id===activeModule}" aria-controls="module-${id}" tabindex="${id===activeModule?'0':'-1'}" data-module="${id}">${label}</button>`).join('');
+  tabs.querySelectorAll('[data-module]').forEach(b=>b.addEventListener('click',()=>setActiveModule(b.dataset.module)));
+  tabs.onkeydown=event=>{
+    if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+    const buttons=Array.from(tabs.querySelectorAll('[role=tab]')),index=buttons.indexOf(event.target);
+    if(index<0)return;event.preventDefault();
+    const next=event.key==='Home'?0:event.key==='End'?buttons.length-1:(index+(event.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;
+    const id=buttons[next].dataset.module;setActiveModule(id);document.getElementById('tab-'+id)?.focus();
   };
-
-  const modules = [
-    { id: 'pos', label: 'Venta' },
-    { id: 'tables', label: 'Mesas' },
-    { id: 'orders', label: 'Órdenes' },
-    { id: 'kitchen', label: 'Cocina' },
-    { id: 'inventory', label: 'Inventario' },
-    { id: 'cash', label: 'Caja' },
-    { id: 'reports', label: 'Reportes' },
-    { id: 'users', label: 'Usuarios' },
-    { id: 'settings', label: 'Configuración' }
-  ];
-
-  const roles = currentEmployee ? visibleSections[currentEmployee.role] || [] : [];
-
-  nav.innerHTML = modules
-    .filter((module) => roles.includes(module.id))
-    .map(
-      (module) => `
-        <button
-          class="nav-btn ${module.id === activeModule ? 'active' : ''}"
-          data-module="${module.id}"
-          type="button"
-        >
-          ${module.label}
-        </button>
-      `
-    )
-    .join('');
-
-  nav.querySelectorAll('.nav-btn').forEach((button) => {
-    button.addEventListener('click', () => setActiveModule(button.dataset.module));
+  document.querySelectorAll('.module').forEach(panel=>{
+    const active=panel.id==='module-'+activeModule;
+    panel.classList.toggle('hidden',!active);panel.classList.toggle('active',active);
+    panel.setAttribute('role','tabpanel');panel.setAttribute('aria-label',navigationGroups.flatMap(g=>g.modules).find(([id])=>panel.id==='module-'+id)?.[1] || 'Sección');
+    panel.setAttribute('aria-hidden',String(!active));
+    if(active)panel.setAttribute('aria-labelledby','tab-'+activeModule);else panel.removeAttribute('aria-labelledby');
   });
+  if(focusedModule)document.getElementById('tab-'+focusedModule)?.focus();
+  if(focusedGroup)nav.querySelector(`[data-workspace="${focusedGroup}"]`)?.focus();
 }
 
 function getAvailableTableForOrder(preferredName = '') {
@@ -820,128 +780,62 @@ function getAvailableTableForOrder(preferredName = '') {
   return fallback;
 }
 
-function reserveTableForOrder(tableName, customerName) {
-  const normalizedName = String(tableName || '').trim();
-  const matchingTable = (state.tables || []).find((table) => {
-    if (normalizedName) {
-      return table.name === normalizedName || String(table.id) === normalizedName || table.id === Number(normalizedName);
-    }
-    return table.status === 'libre';
-  }) || getAvailableTableForOrder(normalizedName || 'Mesa 1');
-
-  if (!matchingTable) return null;
-
-  matchingTable.status = 'pedido';
-  if (customerName) matchingTable.customer = customerName;
-  saveState();
-  renderTables();
-  return matchingTable;
-}
-
-function renderDashboardSummary() {
-  const dashboard = document.getElementById('dashboard-summary');
-  if (!dashboard) return;
-
-  const totalSales = state.sales.reduce((sum, sale) => sum + Number(sale.total || 0), 0);
-  const productsSold = state.sales.reduce((sum, sale) => sum + sale.items.reduce((acc, item) => acc + Number(item.qty || 0), 0), 0);
-  const openOrders = (state.orders || []).filter((order) => !['served', 'cancelled'].includes(order.status)).length;
-  const activeTables = (state.tables || []).filter((table) => table.status !== 'libre').length;
-
-  dashboard.innerHTML = `
-    <div class="metric-card">
-      <span>Ventas del día</span>
-      <strong>${currency(totalSales)}</strong>
-    </div>
-    <div class="metric-card">
-      <span>Productos vendidos</span>
-      <strong>${productsSold}</strong>
-    </div>
-    <div class="metric-card">
-      <span>Órdenes activas</span>
-      <strong>${openOrders}</strong>
-    </div>
-    <div class="metric-card">
-      <span>Mesas ocupadas</span>
-      <strong>${activeTables}</strong>
-    </div>
-  `;
-}
-
 function setActiveModule(moduleId) {
-  activeModule = moduleId;
-
-  document.querySelectorAll('.module').forEach((module) => {
-    module.classList.toggle('hidden', module.id !== `module-${moduleId}`);
-    module.classList.toggle('active', module.id === `module-${moduleId}`);
-  });
+  if (!currentEmployee) return;
+  const allowed=availableModules();
+  if(!allowed.includes(moduleId))moduleId=allowed.includes(activeModule)?activeModule:allowed[0];
+  if(!moduleId){renderNav();return;}
+  if(activeModule!==moduleId)closeAllFloating(false);
+  activeModule=moduleId;
+  renderSaleWorkspace();
 
   renderNav();
+  if (moduleId === 'home') renderHome();
   if (moduleId === 'cash') renderCashPanel();
+  if (moduleId === 'documents') loadDocumentRelay();
+  if (moduleId === 'settings') loadDocumentRelay(true);
   if (moduleId === 'reports') renderReports();
-  if (moduleId === 'pos') renderDashboardSummary();
+  if (moduleId === 'businesses') refreshBusinesses();
+  if (moduleId === 'settings') fillCompanySettingsForm(state.companySettings);
+  if (moduleId === 'documents') refreshDocuments();
+  if (moduleId === 'inventory') refreshInventoryHistory();
 }
 
 async function loginUser() {
-  const employeeId = Number(document.getElementById('employee-select').value);
-  const pin = document.getElementById('pin-input').value;
-  const errorText = document.getElementById('login-error');
-
-  // Try server auth first
+  document.getElementById('pin-input').type='password';
+  document.getElementById('toggle-login-pin').textContent='Mostrar';
+  document.getElementById('toggle-login-pin').setAttribute('aria-pressed','false');
+  const button=document.getElementById('login-btn');
+  if (button.disabled) return;
+  button.disabled=true;
+  const errorText=document.getElementById('login-error');
+  sessionStorage.removeItem('pos_token');
   try {
-    const res = await fetch(API_BASE + '/auth/login', {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ id: employeeId, pin })
-    });
-    if (res && res.ok) {
-      const data = await res.json();
-      currentEmployee = { id: data.user.id, name: data.user.name, role: data.user.role };
-      if (data.token) localStorage.setItem('pos_token', data.token);
-    }
-  } catch (err) {
-    // ignore server error, fallback to local
-  }
-
-  if (!currentEmployee) {
-    const employee = state.employees.find((item) => item.id === employeeId && item.pin === String(pin).trim());
-    if (!employee) {
-      errorText.classList.remove('hidden');
-      return;
-    }
-    currentEmployee = employee;
-  }
-
-  errorText.classList.add('hidden');
-  document.getElementById('pin-input').value = '';
-
-  const adminHero = document.getElementById('admin-hero');
-  if (adminHero) adminHero.classList.toggle('hidden', !canAccessExecutivePanel());
-
-  updateHeader();
-  renderNav();
-  renderProducts();
-  renderInventory();
-  renderCashPanel();
-  renderReports();
-  renderDashboardSummary();
-  const defaultModule = currentEmployee.role === 'cocina' ? 'kitchen' : currentEmployee.role === 'mesero' ? 'tables' : 'pos';
-  setActiveModule(defaultModule);
-  showApp();
-  await loadCustomers();
-  await loadCompanySettings();
-  saveState();
-  // start realtime SSE stream for orders after login
-  if (typeof initOrderEventStream === 'function') initOrderEventStream();
+    const data=await apiRequest('/auth/login',{method:'POST',body:JSON.stringify({id:Number(document.getElementById('employee-select').value),pin:document.getElementById('pin-input').value})});
+    if (!data.user || !data.token) throw new Error('Respuesta de acceso inválida.');
+    resetEnhancements();cart=[];pendingSale=null;lastSnapshot='';
+    currentEmployee=data.user;
+    sessionStorage.setItem('pos_token',data.token);
+    await loadCompanySettings();
+    await syncFromServer();
+    await loadCustomers();
+    await fetchUsersFromServer();
+    restorePendingSale();refreshPendingOperations();
+    errorText.classList.add('hidden');document.getElementById('pin-input').value='';
+    setActiveModule(currentEmployee.role==='cocina'?'kitchen':currentEmployee.role==='mesero'?'tables':'home');
+    renderCart();showApp();initOrderEventStream();
+  } catch(error) {
+    currentEmployee=null;sessionStorage.removeItem('pos_token');
+    errorText.textContent=error.status===401?'Credenciales inválidas.':error.message || 'No hay conexión con el servidor.';
+    errorText.classList.remove('hidden');
+  } finally { button.disabled=false; }
 }
-
-function logoutUser() {
-  currentEmployee = null;
-  cart = [];
-  localStorage.removeItem('pos_token');
-  updateHeader();
-  renderCart();
-  showLogin();
-  saveState();
+async function logoutUser() {
+  if (saleInFlight) return alert('Espera la confirmación de la venta.');
+  try { await apiRequest('/auth/logout',{method:'POST',body:'{}'}); }
+  catch(error) { if (error.status!==401 && error.status!==404) return alert('No se pudo cerrar la sesión en el servidor. Reintenta con conexión.'); }
+  resetEnhancements();stopSync();currentEmployee=null;cart=[];pendingSale=null;sessionStorage.removeItem('pos_token');
+  state=deepClone(DEFAULT_STATE);renderCart();showLogin();await fetchUsersFromServer();
 }
 
 function renderCategoryFilter() {
@@ -949,46 +843,18 @@ function renderCategoryFilter() {
   const categories = [...new Set(state.products.map((product) => product.category))];
 
   filter.innerHTML = '<option value="all">Todas</option>' + categories.map((category) => `
-    <option value="${category}">${category}</option>
+    <option value="${escapeHtml(category)}">${escapeHtml(category)}</option>
   `).join('');
 }
 
-function renderProducts() {
-  const searchTerm = document.getElementById('search-input').value.trim().toLowerCase();
-  const selectedCategory = document.getElementById('category-filter').value;
-
-  const filteredProducts = state.products.filter((product) => {
-    const matchesText = product.name.toLowerCase().includes(searchTerm);
-    const matchesCategory = selectedCategory === 'all' || product.category === selectedCategory;
-    return matchesText && matchesCategory;
-  });
-
-  const grid = document.getElementById('product-grid');
-  if (filteredProducts.length === 0) {
-    grid.innerHTML = '<div class="empty-state">No hay productos disponibles.</div>';
-    return;
-  }
-
-  grid.innerHTML = filteredProducts.map((product) => `
-    <article class="product-card" data-product-id="${product.id}">
-      <div class="product-tag">${product.category}</div>
-      <h4>${product.name}</h4>
-      <p class="product-price">${currency(product.price)}</p>
-      <small>Stock: ${product.stock}</small>
-      <button type="button" class="small primary-btn add-item-btn" data-product-id="${product.id}">Agregar</button>
-    </article>
-  `).join('');
-
-  document.querySelectorAll('.add-item-btn').forEach((button) => {
-    button.addEventListener('click', () => addToCart(Number(button.dataset.productId)));
-  });
-}
+function renderProducts() { renderSaleInventory(); }
 
 function addToCart(productId) {
+  if (saleInFlight || pendingSale) return alert('Primero confirma la venta pendiente.');
   const product = state.products.find((item) => item.id === productId);
 
   if (!product) return;
-  if (product.stock <= 0) {
+  if (tracksStock(product) && product.stock <= 0) {
     alert('El producto está agotado.');
     return;
   }
@@ -996,17 +862,18 @@ function addToCart(productId) {
   const existingItem = cart.find((item) => item.id === productId);
 
   if (existingItem) {
-    if (existingItem.qty >= product.stock) {
+    if (tracksStock(product) && existingItem.qty + (quantityStep(product)<1?.1:1) > product.stock) {
       alert('No hay más stock disponible para este producto.');
       return;
     }
-    existingItem.qty += 1;
+    existingItem.qty=roundQuantity(existingItem.qty+(quantityStep(product)<1?.1:1));
   } else {
     cart.push({
       id: product.id,
       name: product.name,
       price: product.price,
-      qty: 1,
+      qty: quantityStep(product)<1?Math.min(.1,product.stock||.1):1,
+      unit:product.unit,type:product.type,cost:product.cost,catalogPrice:product.price,
       stock: product.stock
     });
   }
@@ -1015,35 +882,32 @@ function addToCart(productId) {
 }
 
 function getCartTotals() {
-  const subtotal = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
-  const discount = 0;
-  const tax = subtotal * 0.13;
-  const total = subtotal + tax - discount;
-
-  return { subtotal, discount, tax, total };
+  return PosMath.totals(cart,Number(state.companySettings.iva_rate??.13),Number(document.getElementById('billing-discount-percent')?.value||0));
 }
 
 function renderCart() {
+  document.getElementById('sale-inventory-status').textContent='';
   const cartList = document.getElementById('cart-list');
 
   if (cart.length === 0) {
-    cartList.innerHTML = '<li class="empty-state cart-empty">El carrito está vacío.</li>';
+    cartList.innerHTML = '<tr><td colspan="9" class="empty-state cart-empty">Agrega productos por código, nombre o desde el catálogo.</td></tr>';
   } else {
-    cartList.innerHTML = cart.map((item, index) => `
-      <li class="cart-item">
-        <div class="cart-details">
-          <strong>${item.name}</strong>
-          <span>${currency(item.price)} c/u</span>
-        </div>
-        <div class="cart-controls">
-          <button type="button" class="qty-btn" data-action="decrease" data-index="${index}">−</button>
-          <span>${item.qty}</span>
-          <button type="button" class="qty-btn" data-action="increase" data-index="${index}">+</button>
-          <button type="button" class="remove-btn" data-index="${index}">Eliminar</button>
-        </div>
-      </li>
-    `).join('');
+    cartList.innerHTML = cart.map((item, index) => {
+      const product=state.products.find(p=>p.id===item.id)||item;
+      return `<tr class="sale-line">
+        <td>${escapeHtml(product.code||'—')}</td>
+        <td class="sale-line-name"><strong>${escapeHtml(item.name)}</strong>${item.priceReason?`<small>${escapeHtml(item.priceReason)}</small>`:''}</td>
+        <td><div class="sale-qty-controls"><button type="button" class="qty-btn" data-action="decrease" data-index="${index}" aria-label="Reducir cantidad de ${escapeHtml(item.name)}">−</button><input class="cart-quantity-input" aria-label="Cantidad de ${escapeHtml(item.name)}" type="number" min="0.001" step="${quantityStep(item)}" value="${item.qty}" data-index="${index}" /><button type="button" class="qty-btn" data-action="increase" data-index="${index}" aria-label="Aumentar cantidad de ${escapeHtml(item.name)}">+</button></div></td>
+        <td>${escapeHtml(item.unit||'unidad')}</td>
+        <td>${currency(item.price)}${canEditInventory()?`<button type="button" class="price-adjust-btn ghost-btn small" data-index="${index}">Editar</button>`:''}</td>
+        <td class="sale-line-amount">${currency(Math.round(PosMath.cents(item.price)*PosMath.quantity(item.qty)/1000)/100)}</td>
+        <td>${tracksStock(product)?'Producto':'Servicio'}</td>
+        <td data-cart-stock="${item.id}">${tracksStock(product)?escapeHtml(product.stock):'Sin control'}</td>
+        <td><button type="button" class="remove-btn" data-index="${index}" aria-label="Quitar ${escapeHtml(item.name)}">×</button></td>
+      </tr>`;
+    }).join('');
   }
+  document.getElementById('sale-line-count').textContent=String(cart.length);
 
   document.querySelectorAll('.qty-btn').forEach((button) => {
     button.addEventListener('click', () => updateCartItemQuantity(Number(button.dataset.index), button.dataset.action));
@@ -1053,12 +917,16 @@ function renderCart() {
     button.addEventListener('click', () => removeCartItem(Number(button.dataset.index)));
   });
 
+  document.querySelectorAll('.cart-quantity-input').forEach(input=>input.addEventListener('change',()=>setCartItemQuantity(Number(input.dataset.index),input.value)));
+  document.querySelectorAll('.price-adjust-btn').forEach(button=>button.addEventListener('click',()=>editCartPrice(Number(button.dataset.index))));
+  document.getElementById('billing-discount-percent').disabled=!canEditInventory()||operationLocked();
+  document.getElementById('billing-discount-reason').disabled=!canEditInventory()||operationLocked();
   const totals = getCartTotals();
-  document.getElementById('subtotal-value').textContent = totals.subtotal.toFixed(2);
+  document.getElementById('subtotal-value').textContent = totals.gross.toFixed(2);
   document.getElementById('discount-value').textContent = totals.discount.toFixed(2);
   document.getElementById('tax-value').textContent = totals.tax.toFixed(2);
   document.getElementById('total-value').textContent = totals.total.toFixed(2);
-  updateMiniTicketTotals();
+  updateMiniTicketTotals();renderSaleEntry();renderSaleInventory();
 
   const cashReceived = document.getElementById('billing-cash-received') || document.getElementById('cash-received');
   if (cashReceived && (!cashReceived.value || Number(cashReceived.value) < totals.total)) {
@@ -1067,337 +935,83 @@ function renderCart() {
 }
 
 function updateCartItemQuantity(index, action) {
-  const item = cart[index];
-  if (!item) return;
-
-  if (action === 'increase') {
-    const product = state.products.find((entry) => entry.id === item.id);
-    if (product && item.qty >= product.stock) {
-      alert('Stock insuficiente');
-      return;
-    }
-    item.qty += 1;
-  }
-
-  if (action === 'decrease') {
-    item.qty -= 1;
-    if (item.qty <= 0) cart.splice(index, 1);
-  }
-
-  renderCart();
+  const item=cart[index];if(!item)return;
+  const step=quantityStep(item)<1?.1:1,next=roundQuantity(item.qty+(action==='increase'?step:-step));
+  if(next<=0){removeCartItem(index);return;}setCartItemQuantity(index,next);
 }
 
 function removeCartItem(index) {
+  if (saleInFlight || pendingSale) return alert('Primero confirma la venta pendiente.');
   cart.splice(index, 1);
   renderCart();
 }
 
 function clearCart() {
-  cart = [];
+  if (saleInFlight || pendingSale) return alert('Primero confirma la venta pendiente.');
+  cart = [];resetSaleAdjustments();
   const cashReceived = document.getElementById('billing-cash-received') || document.getElementById('cash-received');
   if (cashReceived) cashReceived.value = '';
   renderCart();
 }
 
-function processSale() {
-  if (!currentEmployee) {
-    alert('Debe iniciar sesión.');
-    return;
+let saleInFlight=false;
+let pendingSale=null;
+function pendingSaleKey() { return `pos_pending_sale:${operationScope()}:${currentEmployee.id}`; }
+function restorePendingSale() {
+  try { pendingSale=JSON.parse(localStorage.getItem(pendingSaleKey()) || 'null'); }
+  catch (_) { pendingSale=null; }
+  if (pendingSale) {
+    cart=pendingSale.payload.items.map(i=>({...state.products.find(p=>p.id===i.id),...i}));
+    document.getElementById('billing-discount-percent').value=pendingSale.payload.discountPercent||0;document.getElementById('billing-discount-reason').value=pendingSale.payload.discountReason||'';
+    alert('Existe una venta sin confirmación. Pulsa Cobrar venta para consultar/reintentar la misma operación.');
   }
-
-  if (!state.shift.isOpen) {
-    alert('Debe abrir el turno de caja antes de vender.');
-    return;
-  }
-
-  if (cart.length === 0) {
-    alert('No hay productos en el carrito.');
-    return;
-  }
-
-  const totals = getCartTotals();
-  const paymentMethod = document.getElementById('billing-payment-method')?.value || document.getElementById('payment-method')?.value || 'efectivo';
-  const receivedAmount = Number((document.getElementById('billing-cash-received')?.value || document.getElementById('cash-received')?.value || 0));
-  const customerData = getCustomerPayloadFromForm();
-
-  if (paymentMethod === 'efectivo' && receivedAmount < totals.total) {
-    alert('El monto recibido debe ser mayor o igual al total de la venta.');
-    return;
-  }
-
-  const salePayload = {
-    employeeName: currentEmployee.name,
-    paymentMethod,
-    total: Number(totals.total.toFixed(2)),
-    subtotal: Number(totals.subtotal.toFixed(2)),
-    tax: Number(totals.tax.toFixed(2)),
-    items: cart.map((item) => ({ id: item.id, name: item.name, price: item.price, qty: item.qty })),
-    createdAt: new Date().toISOString(),
-    receivedAmount: paymentMethod === 'efectivo' ? receivedAmount : totals.total,
-    change: paymentMethod === 'efectivo' ? Number((receivedAmount - totals.total).toFixed(2)) : 0,
-    customerEmail: customerData.customerEmail,
-    customerName: customerData.customerName,
-    customerNit: customerData.customerNit,
-    customerPhone: customerData.customerPhone,
-    customerAddress: customerData.customerAddress,
-    customerId: customerData.customerId,
-    customer: customerData.customer,
-    tipo_receptor: customerData.tipo_receptor,
-    documentType: customerData.documentType,
-    sandbox: (state.companySettings && state.companySettings.hacienda_mode === 'sandbox') || true
-  };
-
-  fetch(`${API_BASE}/sales`, {
-    method: 'POST',
-    headers: getAuthHeaders(),
-    body: JSON.stringify(salePayload)
-  })
-    .then((res) => {
-      if (!res.ok) throw new Error('server error');
-      return res.json();
-    })
-    .then(async (data) => {
-      if (data && data.sale) {
-        const saved = data.sale;
-        saved.items.forEach((it) => {
-          const product = state.products.find((p) => p.id === it.product_id || p.id === it.id);
-          if (product) product.stock = Math.max(0, product.stock - it.qty);
-        });
-
-        state.sales.unshift({
-          id: saved.id,
-          employeeName: saved.employee_name,
-          paymentMethod: saved.payment_method,
-          total: Number(saved.total),
-          subtotal: Number(saved.subtotal),
-          tax: Number(saved.tax),
-          items: saved.items.map((it) => ({ id: it.product_id || it.id, name: it.name, price: it.price, qty: it.qty })),
-          createdAt: saved.created_at,
-          receivedAmount: saved.received_amount,
-          change: saved.change_amount
-        });
-
-        if (paymentMethod === 'efectivo') {
-          state.shift.cashSales += Number(saved.total);
-          state.shift.currentCash += Number(saved.total);
-        }
-        if (paymentMethod === 'tarjeta') state.shift.cardSales += Number(saved.total);
-        if (paymentMethod === 'transferencia') state.shift.transferSales += Number(saved.total);
-
-        saveState();
-        renderProducts();
-        renderInventory();
-        renderCashPanel();
-        renderReports();
-        clearCart();
-
-        if (customerData.customerEmail) {
-          try {
-            await fetch(`${API_BASE}/invoices/${saved.id}/email`, {
-              method: 'POST',
-              headers: getAuthHeaders(),
-              body: JSON.stringify({ customerEmail: customerData.customerEmail })
-            });
-          } catch (error) {
-            console.warn('No se pudo enviar correo de factura:', error.message);
-          }
-        }
-
-        const pdfUrl = `${API_BASE}/invoices/${saved.id}/pdf`;
-        const printFrame = window.open(pdfUrl, '_blank');
-        if (printFrame) {
-          printFrame.focus();
-          setTimeout(() => {
-            try {
-              printFrame.print();
-            } catch (error) {
-              console.warn('No se pudo imprimir la factura automáticamente:', error.message);
-            }
-          }, 600);
-        }
-
-        alert(`Venta registrada y sincronizada. Total cobrado: ${currency(saved.total)}. Factura: ${data.invoiceNumber || ''}`);
-      } else {
-        throw new Error('Respuesta incorrecta del servidor');
-      }
-    })
-    .catch((err) => {
-      const sale = {
-        id: Date.now(),
-        employeeName: currentEmployee.name,
-        paymentMethod,
-        total: Number(totals.total.toFixed(2)),
-        subtotal: Number(totals.subtotal.toFixed(2)),
-        tax: Number(totals.tax.toFixed(2)),
-        items: cart.map((item) => ({ ...item })),
-        createdAt: new Date().toISOString(),
-        receivedAmount: paymentMethod === 'efectivo' ? receivedAmount : totals.total,
-        change: paymentMethod === 'efectivo' ? Number((receivedAmount - totals.total).toFixed(2)) : 0
-      };
-
-      state.sales.unshift(sale);
-      cart.forEach((item) => {
-        const product = state.products.find((entry) => entry.id === item.id);
-        if (!product) return;
-        product.stock = Math.max(0, product.stock - item.qty);
-      });
-
-      if (paymentMethod === 'efectivo') {
-        state.shift.cashSales += sale.total;
-        state.shift.currentCash += sale.total;
-      }
-      if (paymentMethod === 'tarjeta') state.shift.cardSales += sale.total;
-      if (paymentMethod === 'transferencia') state.shift.transferSales += sale.total;
-
-      saveState();
-      renderProducts();
-      renderInventory();
-      renderCashPanel();
-      renderReports();
-      clearCart();
-
-      alert(`Venta registrada (local). Total cobrado: ${currency(sale.total)}`);
-    });
 }
-
-async function performTestSale() {
-  if (!currentEmployee) {
-    alert('Debe iniciar sesión para realizar la venta de prueba.');
-    return;
+async function processSale() {
+  if (saleInFlight) return;
+  if (!currentEmployee) return alert('Debes iniciar sesión.');
+  if (!pendingSale && (!state.shift.isOpen || !cart.length)) return alert('Abre la caja y agrega productos.');
+  const totals=getCartTotals();
+  const paymentMethod=document.getElementById('billing-payment-method')?.value || 'efectivo';
+  const receivedAmount=Number(document.getElementById('billing-cash-received')?.value || 0);
+  if (!pendingSale && paymentMethod==='efectivo' && (!Number.isFinite(receivedAmount) || receivedAmount<totals.total)) return alert('Efectivo insuficiente o inválido.');
+  if (!pendingSale && localStorage.getItem(pendingSaleKey())) { restorePendingSale();renderCart();return; }
+  if (!pendingSale) {
+    if(paymentMethod==='credito'&&(!document.getElementById('customer-select').value||!document.getElementById('sale-credit-due').value))return alert('Selecciona un cliente registrado y la fecha de vencimiento.');
+    pendingSale={key:newRequestId(),output:document.getElementById('sale-receipt-output').value,payload:{...cartPayload(),paymentMethod,receivedAmount,creditDueDate:document.getElementById('sale-credit-due').value,emailReceipt:document.getElementById('sale-email-receipt').checked}};
+    try { localStorage.setItem(pendingSaleKey(),JSON.stringify(pendingSale)); }
+    catch (_) { pendingSale=null;return alert('No se pudo guardar el identificador de venta. No se envió el cobro.'); }
   }
-
-  if (!state.shift.isOpen) {
-    const ok = confirm('No hay turno abierto. ¿Deseas abrir la caja con $0 para la prueba?');
-    if (!ok) return;
-    openShift();
-  }
-
-  const product = state.products.length > 0 ? state.products[0] : { id: Date.now(), name: 'Producto prueba', price: 1.0, stock: 100 };
-  const qty = 1;
-  const subtotal = Number((product.price * qty).toFixed(2));
-  const tax = Number((subtotal * 0.13).toFixed(2));
-  const total = Number((subtotal + tax).toFixed(2));
-
-  const payload = {
-    employeeName: currentEmployee.name,
-    paymentMethod: 'efectivo',
-    subtotal,
-    tax,
-    total,
-    items: [{ id: product.id, name: product.name, price: product.price, qty }],
-    createdAt: new Date().toISOString(),
-    receivedAmount: total,
-    change: 0
-  };
-
+  const receiptOutput=pendingSale.output||'ticket';
+  const receiptPopup=receiptOutput==='ticket'?openReceiptWindow():null;
+  saleInFlight=true;
   try {
-    const res = await fetch(API_BASE + '/sales', {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(payload)
-    });
-
-    if (!res.ok) throw new Error('No se pudo sincronizar con el servidor');
-    const data = await res.json();
-
-    if (data && data.sale) {
-      const saved = data.sale;
-      // actualizar stock local
-      saved.items.forEach((it) => {
-        const pid = it.product_id || it.id;
-        const p = state.products.find((x) => x.id === pid);
-        if (p) p.stock = Math.max(0, p.stock - it.qty);
-      });
-
-      state.sales.unshift({
-        id: saved.id,
-        employeeName: saved.employee_name,
-        paymentMethod: saved.payment_method,
-        total: Number(saved.total),
-        subtotal: Number(saved.subtotal),
-        tax: Number(saved.tax),
-        items: saved.items.map((it) => ({ id: it.product_id || it.id, name: it.name, price: it.price, qty: it.qty })),
-        createdAt: saved.created_at,
-        receivedAmount: saved.received_amount,
-        change: saved.change_amount
-      });
-
-      if (payload.paymentMethod === 'efectivo') {
-        state.shift.cashSales += Number(saved.total);
-        state.shift.currentCash += Number(saved.total);
-      }
-
-      saveState();
-      renderProducts();
-      renderInventory();
-      renderCashPanel();
-      renderReports();
-
-      alert(`Venta de prueba sincronizada. Total: ${currency(saved.total)}. Factura: ${data.invoiceNumber || ''}`);
-      if (data.sale && data.sale.id) {
-        window.open(API_BASE + '/invoices/' + data.sale.id + '/pdf', '_blank');
-      }
-      return;
-    }
-
-    throw new Error('Respuesta inválida del servidor');
-  } catch (err) {
-    // fallback local
-    const localSale = {
-      id: Date.now(),
-      employeeName: currentEmployee.name,
-      paymentMethod: 'efectivo',
-      total,
-      subtotal,
-      tax,
-      items: [{ id: product.id, name: product.name, price: product.price, qty }],
-      createdAt: new Date().toISOString(),
-      receivedAmount: total,
-      change: 0
-    };
-
-    state.sales.unshift(localSale);
-    const pLocal = state.products.find((x) => x.id === product.id);
-    if (pLocal) pLocal.stock = Math.max(0, pLocal.stock - qty);
-    state.shift.cashSales += localSale.total;
-    state.shift.currentCash += localSale.total;
-
-    saveState();
-    renderProducts();
-    renderInventory();
-    renderCashPanel();
-    renderReports();
-
-    alert('Venta de prueba registrada en modo local (offline).');
-  }
+    const data=await apiRequest('/sales',{method:'POST',headers:{'Idempotency-Key':pendingSale.key},body:JSON.stringify(pendingSale.payload)});
+    if (!data.sale?.id) throw new Error('No se recibió confirmación de la venta.');
+    // Mark committed before rendering or requesting PDFs. Those failures must never create a second sale.
+    localStorage.removeItem(pendingSaleKey());pendingSale=null;cart=[];resetSaleAdjustments();resetCheckoutCustomer();closeBillingModal();renderCart();
+    await syncFromServer().catch(()=>alert('Venta confirmada. Actualiza para consultar el saldo y las existencias.'));
+    showConfirmedSale(data.sale,data.invoiceNumber,data.emailDelivery);
+    await deliverSaleReceipt(lastConfirmedDocument,receiptOutput,receiptPopup);
+  } catch(error) {
+    if(receiptPopup && !receiptPopup.closed)receiptPopup.close();
+    if (pendingSale && error.status>=400 && error.status<500 && !pendingSale.uncertain) {
+      localStorage.removeItem(pendingSaleKey());pendingSale=null;
+      await syncFromServer().catch(()=>{});
+      cart=cart.flatMap(i=>{const p=state.products.find(p=>p.id===i.id);return p&&(!tracksStock(p)||p.stock>0)?[{...p,qty:tracksStock(p)?Math.min(i.qty,p.stock):i.qty,price:p.price,catalogPrice:p.price}]:[];});renderCart();
+      alert('Venta rechazada: '+error.message);
+    } else if (pendingSale) {
+      pendingSale.uncertain=true;
+      localStorage.setItem(pendingSaleKey(),JSON.stringify(pendingSale));
+      alert('No se pudo confirmar el resultado. Conservamos la operación; pulsa Cobrar venta para reintentar sin duplicarla.');
+    } else { alert('La venta fue confirmada, pero falló una acción posterior: '+error.message); }
+  } finally { saleInFlight=false;renderCart(); }
 }
 
-function renderInventory() {
-  const tableBody = document.getElementById('inventory-table-body');
+function renderInventory() { renderExtendedInventory(); }
 
-  tableBody.innerHTML = state.products.map((product) => `
-    <tr>
-      <td>${product.name}</td>
-      <td>${product.category}</td>
-      <td>${currency(product.price)}</td>
-      <td>${product.stock}</td>
-      <td>
-        <button class="ghost-btn small edit-product-btn" data-id="${product.id}">Editar</button>
-        <button class="danger-btn small delete-product-btn" data-id="${product.id}">Eliminar</button>
-      </td>
-    </tr>
-  `).join('');
-
-  document.querySelectorAll('.edit-product-btn').forEach((button) => {
-    button.addEventListener('click', () => openProductForm(Number(button.dataset.id)));
-  });
-
-  document.querySelectorAll('.delete-product-btn').forEach((button) => {
-    button.addEventListener('click', () => deleteProduct(Number(button.dataset.id)));
-  });
-}
-
+let productEditStock=null,productEditVersion=null;
 function openProductForm(productId = null) {
+  if(!canEditInventory())return;
   const formPanel = document.getElementById('product-form-panel');
   const form = document.getElementById('product-form');
   const formTitle = document.getElementById('form-title');
@@ -1414,104 +1028,106 @@ function openProductForm(productId = null) {
     document.getElementById('product-category').value = product.category;
     document.getElementById('product-price').value = product.price;
     document.getElementById('product-stock').value = product.stock;
+    productEditStock=product.stock;productEditVersion=product.version;
+    for(const [field,key] of Object.entries({'product-code':'code','product-cost':'cost','product-min-stock':'min_stock','product-type':'type','product-unit':'unit'}))document.getElementById(field).value=product[key]??'';
     formTitle.textContent = 'Editar producto';
   } else {
     document.getElementById('product-id').value = '';
-    formTitle.textContent = 'Agregar producto';
+    formTitle.textContent = 'Agregar producto';productEditStock=null;productEditVersion=null;
+    document.getElementById('product-type').value=state.companySettings.default_product_type||'producto';
   }
+  updateProductTypeFields();openFloating('product-editor-dialog','product-name');
 }
 
 function closeProductForm() {
+  closeFloating('product-editor-dialog');
   document.getElementById('product-form-panel').classList.add('hidden');
   document.getElementById('product-form').reset();
 }
 
-function deleteProduct(productId) {
-  const product = state.products.find((item) => item.id === productId);
-  if (!product) return;
-
-  const confirmed = window.confirm(`¿Deseas eliminar ${product.name}?`);
-  if (!confirmed) return;
-
-  state.products = state.products.filter((item) => item.id !== productId);
-  saveState();
-  renderProducts();
-  renderInventory();
-  renderCategoryFilter();
+async function deleteProduct(productId) {
+  if (!confirm('¿Eliminar este producto del catálogo?')) return;
+  try { await apiRequest(`/products/${productId}`,{method:'DELETE'});await syncFromServer(); }
+  catch(error) { alert(error.message); }
 }
-
-function handleProductSubmit(event) {
+async function handleProductSubmit(event) {
   event.preventDefault();
-
-  const id = document.getElementById('product-id').value ? Number(document.getElementById('product-id').value) : Date.now();
-  const product = {
-    id,
-    name: document.getElementById('product-name').value.trim(),
-    category: document.getElementById('product-category').value.trim(),
-    price: Number(document.getElementById('product-price').value),
-    stock: Number(document.getElementById('product-stock').value)
-  };
-
-  if (!product.name || !product.category || Number.isNaN(product.price) || Number.isNaN(product.stock)) {
-    alert('Completa todos los campos antes de guardar.');
-    return;
-  }
-
-  const existingIndex = state.products.findIndex((item) => item.id === id);
-
-  if (existingIndex >= 0) {
-    state.products[existingIndex] = product;
-  } else {
-    state.products.push(product);
-  }
-
-  saveState();
-  renderProducts();
-  renderInventory();
-  renderCategoryFilter();
-  closeProductForm();
+  const id=Number(document.getElementById('product-id').value) || null;
+  const payload={ name:document.getElementById('product-name').value.trim(),category:document.getElementById('product-category').value.trim(),
+    price:Number(document.getElementById('product-price').value),stock:Number(document.getElementById('product-stock').value),expectedStock:productEditStock,expectedVersion:productEditVersion,code:document.getElementById('product-code').value,cost:Number(document.getElementById('product-cost').value),min_stock:Number(document.getElementById('product-min-stock').value),type:document.getElementById('product-type').value,unit:document.getElementById('product-unit').value };
+  try {
+    await apiRequest(id?`/products/${id}`:'/products',{method:id?'PUT':'POST',body:JSON.stringify(payload)});
+    closeProductForm();await syncFromServer();
+  } catch(error) { alert(error.message);await syncFromServer().catch(()=>{}); }
 }
-
-function openShift() {
-  const openingCash = Number(prompt('Ingrese el efectivo inicial de caja:', '0') || 0);
-  if (Number.isNaN(openingCash) || openingCash < 0) {
-    alert('Monto inválido.');
-    return;
-  }
-
-  state.shift = {
-    isOpen: true,
-    openingCash,
-    currentCash: openingCash,
-    cashSales: 0,
-    cardSales: 0,
-    transferSales: 0,
-    openedAt: new Date().toISOString(),
-    closedAt: null,
-    observedCash: 0,
-    note: ''
-  };
-
-  saveState();
-  renderCashPanel();
-  updateHeader();
+async function openShift() {
+  if(pendingShiftReport())return openShiftReport('Z');
+  const raw=prompt('Efectivo inicial de caja:','0');if(raw===null)return;
+  try { await apiRequest('/shifts/open',{method:'POST',body:JSON.stringify({openingCash:raw})});await syncFromServer(); }
+  catch(error) { alert(error.message); }
 }
-
-function closeShift() {
-  const observedCash = Number(prompt('Ingrese el efectivo contado al cerrar turno:', '0') || 0);
-  if (Number.isNaN(observedCash) || observedCash < 0) {
-    alert('Monto inválido.');
-    return;
-  }
-
-  state.shift.isOpen = false;
-  state.shift.closedAt = new Date().toISOString();
-  state.shift.observedCash = observedCash;
-  state.shift.note = `Cierre del día. Dinero observado: ${currency(observedCash)}`;
-
-  saveState();
-  renderCashPanel();
-  updateHeader();
+let shiftReportBusy=false,shiftReportHistorySequence=0;
+function shiftReportPendingKey(){const old=`pos_shift_report_${getBusinessId()}_${currentEmployee?.id}`,key=`${old}_${encodeURIComponent(getSavedApiBase())}`;if(sessionStorage.getItem(old)&&!sessionStorage.getItem(key)){sessionStorage.setItem(key,sessionStorage.getItem(old));sessionStorage.removeItem(old);}return key;}
+function pendingShiftReport(){try{return JSON.parse(sessionStorage.getItem(shiftReportPendingKey())||'null');}catch{return null;}}
+function openShiftReport(type){
+ if(!['admin','gerente','cajero'].includes(currentEmployee?.role))return alert('Solo administrador, gerente o cajero puede emitir cortes.');
+ if(pendingSale||saleInFlight)return alert('Confirma primero la venta pendiente.');
+ const pending=pendingShiftReport();
+ if(!state.shift.isOpen&&!pending)return alert('No hay un turno abierto. Puedes reimprimir los cortes del historial.');
+ if(pending)type=pending.body.type;
+ const form=document.getElementById('shift-report-form');form.reset();form.dataset.type=type;form.dataset.shiftId=String(pending?.body.shiftId||state.shift.id);
+ document.getElementById('shift-report-title').textContent=`Corte ${type}${pending?' - reintentar operación pendiente':''}`;
+ document.getElementById('shift-report-description').textContent={X:'Consulta acumulada del turno. No cierra ni reinicia la caja.',Y:'Arqueo parcial acumulado. Registra el efectivo contado sin cerrar ni reiniciar la caja.',Z:'Cierre definitivo del turno. Después debes abrir otro turno para vender.'}[type];
+ document.getElementById('shift-count-field').classList.toggle('hidden',type==='X');
+ const count=document.getElementById('shift-report-count');count.required=type!=='X';count.disabled=type==='X'||Boolean(pending);count.value=pending?.body.observedCash??'';
+ const note=document.getElementById('shift-report-note');note.value=pending?.body.note||'';note.disabled=Boolean(pending);
+ document.getElementById('shift-report-status').textContent=pending?'La respuesta anterior no se confirmó. Reintenta para recuperar el mismo corte.':'';
+ openFloating('shift-report-dialog',type==='X'?'shift-report-note':'shift-report-count');
+}
+async function closeShift(){openShiftReport('Z');}
+async function submitShiftReport(event){
+ event.preventDefault();if(shiftReportBusy)return;
+ if(pendingSale||saleInFlight)return alert('Confirma primero la venta pendiente.');
+ const form=document.getElementById('shift-report-form'),status=document.getElementById('shift-report-status'),button=document.getElementById('shift-report-submit');
+ let pending=pendingShiftReport();
+ if(!pending){const type=form.dataset.type;pending={key:newRequestId(),body:{type,shiftId:Number(form.dataset.shiftId),note:document.getElementById('shift-report-note').value.trim()}};if(type!=='X')pending.body.observedCash=document.getElementById('shift-report-count').value;}
+ // Preserve the same request after a lost response or page reload.
+ sessionStorage.setItem(shiftReportPendingKey(),JSON.stringify(pending));
+ const output=document.getElementById('shift-report-output').value,popup=output==='print'?openReceiptWindow():null;
+ shiftReportBusy=true;button.disabled=true;status.textContent='Guardando corte…';
+ let result;
+ try{
+  result=await apiRequest('/shifts/reports',{method:'POST',headers:{'Idempotency-Key':pending.key},body:JSON.stringify(pending.body)});
+  sessionStorage.removeItem(shiftReportPendingKey());closeFloating('shift-report-dialog');
+ }catch(error){if(popup&&!popup.closed)popup.close();if(error.status>=400&&error.status<500)sessionStorage.removeItem(shiftReportPendingKey());status.textContent=error.message+' Si no se confirmó, vuelve a pulsar Guardar para recuperar el mismo corte.';}
+ finally{shiftReportBusy=false;button.disabled=false;renderCashPanel();}
+ if(!result)return;
+ await syncFromServer().catch(()=>{});await loadShiftReports();
+ try{if(output==='print')await printShiftReport(result.report.id,popup);else if(output==='pdf')await downloadFromApi(`/shifts/reports/${result.report.id}/pdf`,`corte-${result.report.number}.pdf`);}
+ catch(error){alert(`Corte ${result.report.number} guardado. ${error.message} Puedes volver a descargarlo o imprimirlo desde el historial.`);}
+}
+async function printShiftReport(id,popup=openReceiptWindow()){
+ if(window.POSNative?.active)return downloadFromApi(`/shifts/reports/${id}/pdf`,`corte-${id}.pdf`);
+ if(!popup)throw Error('Permite ventanas emergentes para imprimir o descarga el PDF.');
+ const user=currentEmployee?.id;
+ try{const res=await posFetch(getApiUrl(`/shifts/reports/${id}/html`));if(!res.ok)throw Error('No se pudo preparar la impresión.');const html=await res.text();if(currentEmployee?.id!==user)throw Error('La sesión cambió.');if(popup.closed)throw Error('La ventana de impresión se cerró.');popup.document.open();popup.document.write(html);popup.document.close();popup.focus();popup.print();}
+ catch(error){if(!popup.closed)popup.close();throw error;}
+}
+async function loadShiftReports(){
+ const body=document.getElementById('shift-reports-body'),status=document.getElementById('shift-reports-status');if(!body||!currentEmployee)return;
+ const seq=++shiftReportHistorySequence,user=currentEmployee.id;
+ try{const data=await apiRequest('/shifts/reports');if(seq!==shiftReportHistorySequence||currentEmployee?.id!==user)return;
+  body.innerHTML=data.reports.map(r=>{const m=c=>new Intl.NumberFormat('es-SV',{style:'currency',currency:r.currency}).format(c/100),diff=r.differenceCents===null?'Sin conteo':r.differenceCents<0?'Faltante '+m(-r.differenceCents):r.differenceCents>0?'Sobrante '+m(r.differenceCents):'Cuadrado';return `<tr><td>${escapeHtml(r.number)}</td><td>${r.shiftId}</td><td>${escapeHtml(new Date(r.createdAt).toLocaleString())}</td><td>${escapeHtml(r.employeeName)}</td><td>${escapeHtml(m(r.expectedCents))}</td><td>${r.observedCents===null?'—':escapeHtml(m(r.observedCents))}</td><td>${escapeHtml(diff)}</td><td><button type="button" class="ghost-btn small" data-shift-action="pdf" data-id="${r.id}">PDF</button> <button type="button" class="ghost-btn small" data-shift-action="print" data-id="${r.id}">Imprimir</button> <button type="button" class="ghost-btn small" data-shift-action="json" data-id="${r.id}">JSON</button></td></tr>`;}).join('');
+  status.textContent=data.reports.length?'Últimos 200 cortes como máximo. En Android/iOS, abre el PDF compartido en un lector y usa su opción Imprimir.':'Aún no hay cortes guardados. Los cierres anteriores a esta actualización no tienen un corte emitido.';
+ }catch(error){if(seq===shiftReportHistorySequence&&currentEmployee?.id===user)status.textContent=error.message;}
+}
+function initShiftReports(){
+ document.getElementById('shift-report-form').addEventListener('submit',submitShiftReport);
+ document.getElementById('shift-report-x').addEventListener('click',()=>openShiftReport('X'));
+ document.getElementById('shift-report-retry').addEventListener('click',()=>openShiftReport('Z'));
+ document.getElementById('shift-report-y').addEventListener('click',()=>openShiftReport('Y'));
+ document.getElementById('shift-reports-refresh').addEventListener('click',loadShiftReports);
+ document.getElementById('shift-reports-body').addEventListener('click',async event=>{const b=event.target.closest('[data-shift-action]');if(!b||b.disabled)return;b.disabled=true;try{if(b.dataset.shiftAction==='print')await printShiftReport(b.dataset.id);else await downloadFromApi(`/shifts/reports/${b.dataset.id}/${b.dataset.shiftAction}`,`corte-${b.dataset.id}.${b.dataset.shiftAction}`);}catch(error){alert(error.message);}finally{b.disabled=false;}});
 }
 
 function renderCashPanel() {
@@ -1519,7 +1135,12 @@ function renderCashPanel() {
   const shiftSummary = document.getElementById('shift-summary');
 
   const toggleShiftButton = document.getElementById('toggle-shift-btn');
-  toggleShiftButton.textContent = state.shift.isOpen ? 'Cerrar turno' : 'Abrir turno';
+  toggleShiftButton.textContent = state.shift.isOpen ? 'Corte Z · Cerrar turno' : 'Abrir turno';
+  const canIssue=['admin','gerente','cajero'].includes(currentEmployee?.role);
+  toggleShiftButton.disabled=!canIssue;
+  document.getElementById('shift-report-retry').classList.toggle('hidden',!canIssue||!pendingShiftReport());
+  for(const id of ['shift-report-x','shift-report-y'])document.getElementById(id).disabled=!canIssue||!state.shift.isOpen;
+  if(activeModule==='cash')loadShiftReports();
   toggleShiftButton.onclick = state.shift.isOpen ? closeShift : openShift;
 
   if (!state.shift.isOpen) {
@@ -1527,6 +1148,7 @@ function renderCashPanel() {
       <div class="empty-state">
         <p>No hay un turno abierto.</p>
         <p>Abre la caja para comenzar a vender.</p>
+        ${state.shift.id ? `<p>Último turno: ${state.shift.id} · Efectivo esperado: ${currency(state.shift.currentCash)} · Contado: ${currency(state.shift.observedCash)} · ${state.shift.difference<0?'Faltante':state.shift.difference>0?'Sobrante':'Cuadrado'}: ${currency(Math.abs(state.shift.difference||0))}</p>` : ''}
       </div>
     `;
   } else {
@@ -1534,25 +1156,26 @@ function renderCashPanel() {
       <div class="shift-info">
         <p><strong>Turno abierto:</strong> ${new Date(state.shift.openedAt).toLocaleString()}</p>
         <p><strong>Apertura:</strong> ${currency(state.shift.openingCash)}</p>
-        <p><strong>Dinero actual:</strong> ${currency(state.shift.currentCash)}</p>
-        <p><strong>Ventas en efectivo:</strong> ${currency(state.shift.cashSales)}</p>
-        <p><strong>Ventas con tarjeta:</strong> ${currency(state.shift.cardSales)}</p>
+        <p><strong>Efectivo esperado:</strong> ${currency(state.shift.currentCash)}</p>
+        <p><strong>Efectivo neto (ventas + abonos − devoluciones):</strong> ${currency(state.shift.cashSales)}</p>
+        <p><strong>Tarjeta neta (ventas + abonos − devoluciones):</strong> ${currency(state.shift.cardSales)}</p>
         <p><strong>Transferencias:</strong> ${currency(state.shift.transferSales)}</p>
       </div>
     `;
   }
 
-  const totalSales = state.sales.reduce((sum, sale) => sum + sale.total, 0);
-  const salesCount = state.sales.length;
-  const totalProductsSold = state.sales.reduce((sum, sale) => sum + sale.items.reduce((x, item) => x + item.qty, 0), 0);
+  const shiftSales = state.sales.filter(sale=>sale.shift_id===state.shift.id);
+  const totalSales = shiftSales.reduce((sum, sale) => sum + sale.total, 0);
+  const salesCount = shiftSales.length;
+  const totalProductsSold = shiftSales.reduce((sum, sale) => sum + sale.items.reduce((x, item) => x + item.qty, 0), 0);
 
   shiftSummary.innerHTML = `
     <div class="metric-card">
-      <span>Ventas</span>
+      <span>Ventas del turno</span>
       <strong>${salesCount}</strong>
     </div>
     <div class="metric-card">
-      <span>Ingresos</span>
+      <span>Total emitido</span>
       <strong>${currency(totalSales)}</strong>
     </div>
     <div class="metric-card">
@@ -1563,12 +1186,18 @@ function renderCashPanel() {
 }
 
 function renderReports() {
+  const employees=document.getElementById('sales-report-employee'),selected=employees?.value;
+  if(employees){employees.replaceChildren(new Option('Todos los cajeros','all'),...[...new Set(state.sales.map(s=>s.employeeName))].map(name=>new Option(name,name)));employees.value=selected||'all';}
+  const reportSales=filteredSales();
+  const knownCosts=reportSales.filter(s=>s.items.length && s.items.every(i=>i.cost!==null && i.cost!==undefined));
+  const profitCents=knownCosts.reduce((n,s)=>n+PosMath.cents(s.subtotal)-s.items.reduce((cost,i)=>cost+Math.round(PosMath.cents(i.cost)*PosMath.quantity(i.qty)/1000),0),0);
+
   const tableBody = document.getElementById('sales-table-body');
   const reportCards = document.getElementById('report-cards');
 
-  const totalSales = state.sales.reduce((sum, sale) => sum + sale.total, 0);
-  const totalCount = state.sales.length;
-  const totalUnits = state.sales.reduce((sum, sale) => sum + sale.items.reduce((acc, item) => acc + item.qty, 0), 0);
+  const totalSales = reportSales.reduce((sum, sale) => sum + sale.total, 0);
+  const totalCount = reportSales.length;
+  const totalUnits = reportSales.reduce((sum, sale) => sum + sale.items.reduce((acc, item) => acc + item.qty, 0), 0);
   const currentMonth = new Date().toISOString().slice(0, 7);
   const selectedReport = localStorage.getItem('pos_selected_report_view') || 'monthly';
 
@@ -1636,17 +1265,7 @@ function renderReports() {
               <textarea id="expense-notes" placeholder="Notas"></textarea>
               <button type="submit" class="ghost-btn small">Guardar gasto</button>
             </form>
-            <form id="inventory-check-form" class="mini-form">
-              <h5>Verificación inventario</h5>
-              <select id="inventory-check-product">
-                ${state.products.map((product) => `<option value="${product.id}">${product.name}</option>`).join('') || '<option value="">Sin productos</option>'}
-              </select>
-              <input id="inventory-check-date" type="date" />
-              <input id="inventory-check-expected" type="number" placeholder="Esperado" />
-              <input id="inventory-check-counted" type="number" placeholder="Contado" />
-              <textarea id="inventory-check-notes" placeholder="Notas"></textarea>
-              <button type="submit" class="ghost-btn small">Guardar conteo</button>
-            </form>
+            <button type="button" id="report-open-count" class="ghost-btn small">Abrir conteo de inventario</button>
           </div>
         </div>
       `;
@@ -1686,8 +1305,9 @@ function renderReports() {
           <strong>${totalUnits}</strong>
         </div>
         <div class="metric-card compact">
-          <span>Modo</span>
-          <strong>${(state.companySettings && state.companySettings.hacienda_mode) || 'sandbox'}</strong>
+          <span>Utilidad bruta estimada</span>
+          <strong>${currency(profitCents/100)}</strong>
+          <small>Sin IVA ni gastos. ${reportSales.length-knownCosts.length} ventas sin costo histórico. Fechas UTC.</small>
         </div>
       </div>
 
@@ -1710,12 +1330,12 @@ function renderReports() {
     </div>
   `;
 
-  tableBody.innerHTML = state.sales.length === 0
+  tableBody.innerHTML = reportSales.length === 0
     ? '<tr><td colspan="4" class="empty-state">No hay ventas registradas.</td></tr>'
-    : state.sales.map((sale) => `
+    : reportSales.map((sale) => `
         <tr>
           <td>${new Date(sale.createdAt).toLocaleString()}</td>
-          <td>${sale.employeeName}</td>
+          <td>${escapeHtml(sale.employeeName)}</td>
           <td>${sale.paymentMethod}</td>
           <td>${currency(sale.total)}</td>
         </tr>
@@ -1743,7 +1363,6 @@ function bindReportControls() {
   const purchaseProductForm = document.getElementById('purchase-product-form');
   const purchaseForm = document.getElementById('purchase-form');
   const expenseForm = document.getElementById('expense-form');
-  const inventoryCheckForm = document.getElementById('inventory-check-form');
 
   if (refreshBtn) refreshBtn.onclick = refreshMonthSummary;
   if (closeMonthBtn) closeMonthBtn.onclick = closeCurrentMonth;
@@ -1768,26 +1387,13 @@ function bindReportControls() {
       }
 
       try {
-        const res = await fetch(`${API_BASE}/products`, {
+        const res = await posFetch(`${API_BASE}/products`, {
           method: 'POST',
           headers: getAuthHeaders(),
           body: JSON.stringify(payload)
         });
         if (!res.ok) throw new Error('No se pudo guardar el producto');
-        const data = await res.json();
-        const product = data.product || { ...payload, id: Date.now() };
-        const exists = state.products.some((item) => item.id === product.id);
-        if (!exists) state.products.push({
-          id: product.id,
-          name: product.name,
-          category: product.category || payload.category,
-          price: Number(product.price || payload.price),
-          stock: Number(product.stock || payload.stock)
-        });
-        saveState();
-        renderProducts();
-        renderInventory();
-        renderCategoryFilter();
+        await syncFromServer();
         purchaseProductForm.reset();
         alert('Producto agregado correctamente al inventario.');
       } catch (error) {
@@ -1809,7 +1415,7 @@ function bindReportControls() {
         notes: document.getElementById('purchase-notes').value
       };
       try {
-        const res = await fetch(`${API_BASE}/purchases`, {
+        const res = await posFetch(`${API_BASE}/purchases`, {
           method: 'POST',
           headers: getAuthHeaders(),
           body: JSON.stringify(payload)
@@ -1837,7 +1443,7 @@ function bindReportControls() {
         notes: document.getElementById('expense-notes').value
       };
       try {
-        const res = await fetch(`${API_BASE}/expenses`, {
+        const res = await posFetch(`${API_BASE}/expenses`, {
           method: 'POST',
           headers: getAuthHeaders(),
           body: JSON.stringify(payload)
@@ -1852,31 +1458,8 @@ function bindReportControls() {
     };
   }
 
-  if (inventoryCheckForm) {
-    inventoryCheckForm.onsubmit = async (event) => {
-      event.preventDefault();
-      const productId = document.getElementById('inventory-check-product').value;
-      const payload = {
-        product_id: Number(productId),
-        fecha: document.getElementById('inventory-check-date').value || new Date().toISOString().slice(0, 10),
-        expected_qty: Number(document.getElementById('inventory-check-expected').value || 0),
-        counted_qty: Number(document.getElementById('inventory-check-counted').value || 0),
-        notes: document.getElementById('inventory-check-notes').value
-      };
-      try {
-        const res = await fetch(`${API_BASE}/inventory/check`, {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          body: JSON.stringify(payload)
-        });
-        if (!res.ok) throw new Error('No se pudo guardar el conteo');
-        inventoryCheckForm.reset();
-        alert('Conteo de inventario guardado.');
-      } catch (error) {
-        alert(error.message);
-      }
-    };
-  }
+  const countButton=document.getElementById('report-open-count');if(countButton){countButton.classList.toggle('hidden',!canEditInventory());countButton.onclick=openInventoryCount;}
+
 }
 
 async function refreshMonthSummary() {
@@ -1886,7 +1469,7 @@ async function refreshMonthSummary() {
   const vatBox = document.getElementById('vat-summary-box');
 
   try {
-    const res = await fetch(`${API_BASE}/admin/monthly-summary?month=${encodeURIComponent(month)}`, {
+    const res = await posFetch(`${API_BASE}/admin/monthly-summary?month=${encodeURIComponent(month)}`, {
       headers: getAuthHeaders(null)
     });
     if (!res.ok) throw new Error('No disponible');
@@ -1913,7 +1496,7 @@ async function refreshMonthSummary() {
       `;
     }).join('');
 
-    const vatRes = await fetch(`${API_BASE}/vat-book?start=${encodeURIComponent(`${month}-01`)}&end=${encodeURIComponent(`${month}-31`)}`, {
+    const vatRes = await posFetch(`${API_BASE}/vat-book?start=${encodeURIComponent(`${month}-01`)}&end=${encodeURIComponent(`${month}-31`)}`, {
       headers: getAuthHeaders(null)
     });
     if (vatRes.ok) {
@@ -1951,13 +1534,13 @@ async function closeCurrentMonth() {
   if (!ok) return;
 
   try {
-    const res = await fetch(`${API_BASE}/admin/close-month`, {
+    const res = await posFetch(`${API_BASE}/admin/close-month`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({ year, month: mon, notes: `Cierre del mes ${month}` })
     });
-    if (!res.ok) throw new Error('No se pudo cerrar el mes');
     const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo cerrar el mes');
     alert(`Mes cerrado correctamente. ID: ${data.closure.id}`);
     refreshMonthSummary();
   } catch (error) {
@@ -1968,11 +1551,12 @@ async function closeCurrentMonth() {
 async function downloadReportPdf(type, params = {}) {
   try {
     const query = new URLSearchParams(params);
-    const res = await fetch(`${API_BASE}/reports/${type}/pdf?${query.toString()}`, {
+    const res = await posFetch(`${API_BASE}/reports/${type}/pdf?${query.toString()}`, {
       headers: getAuthHeaders(null)
     });
     if (!res.ok) throw new Error('No se pudo generar el PDF');
     const blob = await res.blob();
+    if(window.POSNative?.active)return await window.POSNative.shareFile(blob,({'monthly-close':'cierre-mensual','vat-book':'libro-iva',inventory:'inventario'}[type]||'reporte')+'.pdf');
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -1995,8 +1579,9 @@ async function downloadReportPdf(type, params = {}) {
 
 async function exportReport(format = 'csv') {
   try {
-    const url = `${API_BASE}/reports/sales/export?format=${format}`;
-    const res = await fetch(url, { headers: getAuthHeaders(null) });
+    const query=salesReportQuery();query.set('format',format);
+    const url = `${API_BASE}/reports/sales/export?${query}`;
+    const res = await posFetch(url, { headers: getAuthHeaders(null) });
     if (!res.ok) {
       alert('No se pudo exportar el reporte. Asegúrate de estar autenticado con un usuario con permisos.');
       return;
@@ -2007,6 +1592,7 @@ async function exportReport(format = 'csv') {
     if (cd && cd.includes('filename=')) {
       filename = cd.split('filename=')[1].replace(/"/g, '');
     }
+    if(window.POSNative?.active)return await window.POSNative.shareFile(blob,filename);
     const a = document.createElement('a');
     const urlBlob = URL.createObjectURL(blob);
     a.href = urlBlob;
@@ -2022,27 +1608,8 @@ async function exportReport(format = 'csv') {
 
 // --- Users management (UI + server sync)
 async function fetchUsersFromServer() {
-  try {
-    const res = await fetch(API_BASE + '/users', { headers: getAuthHeaders(null) });
-    if (!res.ok) return;
-    const data = await res.json();
-    if (data && data.users) {
-      const localById = Object.fromEntries(state.employees.map((e) => [e.id, e]));
-      state.employees = data.users.map((u) => ({
-        id: u.id,
-        name: u.name,
-        role: u.role,
-        // keep local PIN if exists, server doesn't return pins for security
-        pin: localById[u.id] ? localById[u.id].pin : '0000'
-      }));
-      saveState();
-      renderEmployeeOptions();
-      renderUsers();
-    }
-  } catch (err) {
-    // ignore network errors, keep local users
-    console.warn('No se pudo sincronizar usuarios:', err.message);
-  }
+  try { const data=await apiRequest(canManageUserAccounts()?'/users?includeInactive=1':'/users');state.employees=data.users;renderEmployeeOptions();renderUsers(); }
+  catch(error) { console.warn('No se pudo cargar empleados:',error.message); }
 }
 
 function renderUsers() {
@@ -2056,8 +1623,8 @@ function renderUsers() {
   tbody.innerHTML = state.employees
     .map((u) => `
       <tr>
-        <td>${u.name}</td>
-        <td>${u.role}</td>
+        <td>${escapeHtml(u.name)}</td>
+        <td>${escapeHtml(u.role)} · ${u.active===0?'Inactivo':'Activo'}</td>
         <td>
           <button class="ghost-btn edit-user" data-id="${u.id}">Editar</button>
           <button class="danger-btn delete-user" data-id="${u.id}">Eliminar</button>
@@ -2085,9 +1652,10 @@ function openUserForm(userId = null) {
     const user = state.employees.find((u) => u.id === userId);
     if (!user) return;
     document.getElementById('user-id').value = user.id;
-    document.getElementById('user-name').value = user.name;
+    document.getElementById('user-form-name').value = user.name;
     document.getElementById('user-role-input').value = user.role;
-    document.getElementById('user-pin').value = user.pin || '';
+    document.getElementById('user-active').checked=user.active!==0;
+    document.getElementById('user-pin').value = '';
   }
 }
 
@@ -2099,116 +1667,23 @@ function closeUserForm() {
 
 async function handleUserSubmit(event) {
   event.preventDefault();
-if (!canManageUserAccounts()) {
-  alert('Solo los administradores o gerentes pueden gestionar usuarios.');
-  return;
-}
-
-const id = document.getElementById('user-id').value ? Number(document.getElementById('user-id').value) : null;
-const name = document.getElementById('user-name').value.trim();
-const role = document.getElementById('user-role-input').value;
-const pin = document.getElementById('user-pin').value.trim();
-
-if (!name || !role || !pin) {
-  alert('Completa todos los campos.');
-  return;
-}
-
-const payload = { name, role, pin };
-
+  if (!canManageUserAccounts()) return alert('Permiso insuficiente.');
+  const id=document.getElementById('user-id').value;
+  const payload={active:document.getElementById('user-active').checked,name:document.getElementById('user-form-name').value.trim(),role:document.getElementById('user-role-input').value,pin:document.getElementById('user-pin').value.trim()};
+  if (!payload.name || (!id && !/^\d{6,12}$/.test(payload.pin)) || (payload.pin && !/^\d{6,12}$/.test(payload.pin))) return alert('Indica nombre, rol y un PIN de 6 a 12 dígitos.');
   try {
-    let res;
-    // build headers and attach executive PIN if required by server
-    const headers = getAuthHeaders();
-    try {
-      if (window.state && window.state.companySettings && window.state.companySettings.executive_pin_set) {
-        const execPin = prompt('Introduce PIN ejecutivo para confirmar la acción:');
-        if (!execPin) { alert('Acción cancelada. Se requiere PIN ejecutivo.'); return; }
-        headers['x-exec-pin'] = execPin;
-      }
-    } catch (e) {}
-
-    if (id) {
-      res = await fetch(`${API_BASE}/users/${id}`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify(payload)
-      });
-    } else {
-      res = await fetch(`${API_BASE}/users`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload)
-      });
-    }
-
-    if (res && res.ok) {
-      const data = await res.json();
-      const user = data.user;
-      if (id) {
-        const idx = state.employees.findIndex((u) => u.id === id);
-        if (idx >= 0) state.employees[idx] = { id: user.id, name: user.name, role: user.role, pin };
-      } else {
-        state.employees.push({ id: user.id, name: user.name, role: user.role, pin });
-      }
-    } else {
-      // fallback local-only
-      if (id) {
-        const idx = state.employees.findIndex((u) => u.id === id);
-        if (idx >= 0) state.employees[idx] = { id, name, role, pin };
-      } else {
-        const newId = Date.now();
-        state.employees.push({ id: newId, name, role, pin });
-      }
-    }
-  } catch (err) {
-    // local fallback
-    if (id) {
-      const idx = state.employees.findIndex((u) => u.id === id);
-      if (idx >= 0) state.employees[idx] = { id, name, role, pin };
-    } else {
-      const newId = Date.now();
-      state.employees.push({ id: newId, name, role, pin });
-    }
-  }
-
-  saveState();
-  renderEmployeeOptions();
-  renderUsers();
-  closeUserForm();
+    await apiRequest(id?`/users/${id}`:'/users',{method:id?'PUT':'POST',headers:await executiveHeaders(),body:JSON.stringify(payload)});
+    await fetchUsersFromServer();closeUserForm();
+  } catch(error) { alert(error.message); }
 }
-
-async function deleteUser(userId) {
-  if (!canManageUserAccounts()) {
-    alert('Solo los administradores o gerentes pueden eliminar cuentas.');
-    return;
-  }
-  if (!confirm('¿Eliminar usuario?')) return;
-  try {
-    const headers = getAuthHeaders(null);
-    try {
-      if (window.state && window.state.companySettings && window.state.companySettings.executive_pin_set) {
-        const execPin = prompt('Introduce PIN ejecutivo para confirmar la eliminación:');
-        if (!execPin) { alert('Acción cancelada. Se requiere PIN ejecutivo.'); return; }
-        headers['x-exec-pin'] = execPin;
-      }
-    } catch (e) {}
-
-    const res = await fetch(`${API_BASE}/users/${userId}`, { method: 'DELETE', headers });
-    if (res && res.ok) {
-      state.employees = state.employees.filter((u) => u.id !== userId);
-    } else {
-      state.employees = state.employees.filter((u) => u.id !== userId);
-    }
-  } catch (err) {
-    state.employees = state.employees.filter((u) => u.id !== userId);
-  }
-  saveState();
-  renderEmployeeOptions();
-  renderUsers();
+async function deleteUser(id) {
+  if (!canManageUserAccounts() || !confirm('¿Eliminar usuario?')) return;
+  try { await apiRequest(`/users/${id}`,{method:'DELETE',headers:await executiveHeaders()});await fetchUsersFromServer(); }
+  catch(error) { alert(error.message); }
 }
 
 function fillCompanySettingsForm(settings = {}) {
+  fillBusinessSettings(settings);
   const fieldIds = [
     'company_name', 'company_legal_name', 'company_nit', 'company_giro', 'company_address', 'company_department', 'company_municipality', 'company_phone', 'company_email', 'company_website',
     'server_base',
@@ -2250,7 +1725,7 @@ function fillCompanySettingsForm(settings = {}) {
 }
 
 async function saveCompanySettings(event) {
-  event.preventDefault();
+  event?.preventDefault();
   if (!currentEmployee || currentEmployee.role !== 'admin') {
     alert('Solo el administrador puede guardar la configuración de la empresa.');
     return;
@@ -2269,25 +1744,17 @@ async function saveCompanySettings(event) {
     if (input) payload[key] = input.value;
   });
 
+  Object.assign(payload,readBusinessSettings());
   const logoInput = document.getElementById('setting-company_logo');
   if (logoInput && logoInput.files && logoInput.files[0]) {
     const file = logoInput.files[0];
     const reader = new FileReader();
     reader.onload = async () => {
       payload.company_logo = reader.result;
-      // include executive pin hash if set in state
-      if (window.state && window.state.companySettings && window.state.companySettings.executive_pin_hash) {
-        payload.executive_pin_hash = window.state.companySettings.executive_pin_hash;
-      }
       await persistCompanySettings(payload);
     };
     reader.readAsDataURL(file);
     return;
-  }
-
-  // include executive pin hash if set in state
-  if (window.state && window.state.companySettings && window.state.companySettings.executive_pin_hash) {
-    payload.executive_pin_hash = window.state.companySettings.executive_pin_hash;
   }
 
   await persistCompanySettings(payload);
@@ -2296,44 +1763,13 @@ async function saveCompanySettings(event) {
 
 async function persistCompanySettings(payload) {
   try {
-    // Prepare headers and, if executive PIN is configured on the server, prompt for PIN to include
-    const headers = getAuthHeaders();
-
-    try {
-      if (window.state && window.state.companySettings && window.state.companySettings.executive_pin_hash && window.state.companySettings.executive_pin_set) {
-        const pin = prompt('Introduce PIN ejecutivo para confirmar cambios:');
-        if (!pin) { alert('Se requiere PIN ejecutivo para confirmar los cambios.'); return; }
-        headers['x-exec-pin'] = pin;
-      }
-    } catch (e) { /* non-blocking */ }
-
-    const res = await fetch(`${API_BASE}/settings`, {
-      method: 'PUT',
-      headers,
-      body: JSON.stringify(payload)
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'No se pudo guardar la configuración');
-    }
-
-    const data = await res.json();
-    state.companySettings = data.settings || payload;
-    applyCompanySettings(state.companySettings);
-    // Store server base in localStorage so webview / Android wrapper uses it
-    try {
-      if (state.companySettings.server_base) {
-        localStorage.setItem('pos_api_base', state.companySettings.server_base);
-      }
-    } catch (e) {
-      console.warn('No se pudo guardar pos_api_base en localStorage:', e.message);
-    }
-    saveState();
-    alert('Configuración guardada correctamente.');
-  } catch (error) {
-    alert(error.message || 'Error guardando la configuración.');
-  }
+    // A connection target is a device preference, not a shared business setting.
+    const serverBase=payload.server_base;delete payload.server_base;
+    const data=await apiRequest('/settings',{method:'PUT',headers:await executiveHeaders(),body:JSON.stringify(payload)});
+    state.companySettings=data.settings;applyCompanySettings(data.settings);fillCompanySettingsForm(data.settings);applyBusinessConfiguration();renderNav();renderCart();
+    if (serverBase && serverBase.replace(/\/$/,'')!==getSavedApiBase()) { await setConnectionTarget(serverBase);return; }
+    alert('Configuración guardada.');
+  } catch(error) { alert(error.message); }
 }
 
 async function activateBusiness() {
@@ -2346,7 +1782,7 @@ async function activateBusiness() {
 
   const headers = getAuthHeaders();
   try {
-    if (window.state && window.state.companySettings && window.state.companySettings.executive_pin_set) {
+    if (state.companySettings.executive_pin_set) {
       const pin = prompt('Introduce PIN ejecutivo para confirmar la activación:');
       if (!pin) { alert('Acción cancelada. PIN requerido.'); return; }
       headers['x-exec-pin'] = pin;
@@ -2354,7 +1790,7 @@ async function activateBusiness() {
   } catch (e) { }
 
   try {
-    const res = await fetch(`${API_BASE}/admin/activate-business`, { method: 'POST', headers });
+    const res = await posFetch(`${API_BASE}/admin/activate-business`, { method: 'POST', headers });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       alert(data.error || 'No se pudo activar el negocio');
@@ -2415,7 +1851,7 @@ function initializeApp() {
   updateHeader();
 
   const loginBtn = document.getElementById('login-btn');
-  if (loginBtn) loginBtn.addEventListener('click', loginUser);
+  document.getElementById('login-form')?.addEventListener('submit',event=>{event.preventDefault();loginUser();});
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) logoutBtn.addEventListener('click', logoutUser);
   const searchInput = document.getElementById('search-input');
@@ -2426,8 +1862,6 @@ function initializeApp() {
   if (clearCartBtnEl) clearCartBtnEl.addEventListener('click', clearCart);
   const processSaleBtnEl = document.getElementById('process-sale-btn');
   if (processSaleBtnEl) processSaleBtnEl.addEventListener('click', () => openBillingModal('payment'));
-  const quickBillingBtnEl = document.getElementById('quick-billing-btn');
-  if (quickBillingBtnEl) quickBillingBtnEl.addEventListener('click', () => openBillingModal('payment'));
   const saveCustomerBtnEl = document.getElementById('save-customer-btn');
   if (saveCustomerBtnEl) saveCustomerBtnEl.addEventListener('click', saveCustomerFromForm);
   const confirmBillingBtnEl = document.getElementById('confirm-billing-btn');
@@ -2437,47 +1871,7 @@ function initializeApp() {
   document.querySelectorAll('[data-close-modal="true"]').forEach((element) => {
     element.addEventListener('click', closeBillingModal);
   });
-  const customerSelectEl = document.getElementById('customer-select');
-  if (customerSelectEl) {
-    customerSelectEl.addEventListener('change', async () => {
-      const customerId = customerSelectEl.value;
-      const setField = (id, value) => {
-        const target = document.getElementById(id);
-        if (target) target.value = value || '';
-      };
-      if (!customerId) {
-        setField('billing-customer-name', '');
-        setField('billing-customer-nit', '');
-        setField('billing-customer-email', '');
-        setField('billing-customer-phone', '');
-        setField('billing-customer-address', '');
-        setField('billing-customer-department', '');
-        setField('billing-customer-municipality', '');
-        setField('billing-customer-giro', '');
-        setField('billing-customer-notes', '');
-        setField('billing-customer-type', 'consumidor_final');
-        return;
-      }
-      try {
-        const res = await fetch(`${API_BASE}/customers/${customerId}`, { headers: getAuthHeaders(null) });
-        if (!res.ok) return;
-        const data = await res.json();
-        const customer = data.customer || {};
-        setField('billing-customer-name', customer.full_name || '');
-        setField('billing-customer-nit', customer.nit || '');
-        setField('billing-customer-email', customer.email || '');
-        setField('billing-customer-phone', customer.phone || '');
-        setField('billing-customer-address', customer.address || '');
-        setField('billing-customer-department', customer.department || '');
-        setField('billing-customer-municipality', customer.municipality || '');
-        setField('billing-customer-giro', customer.giro || '');
-        setField('billing-customer-notes', customer.notes || '');
-        setField('billing-customer-type', customer.document_type || 'consumidor_final');
-      } catch (error) {
-        console.warn('No se pudo cargar el cliente seleccionado:', error.message);
-      }
-    });
-  }
+  document.getElementById('customer-select').addEventListener('change',()=>selectRegisteredCustomer(document.getElementById('customer-select').value));
   const sendKitchenBtnEl = document.getElementById('send-kitchen-btn');
   if (sendKitchenBtnEl) sendKitchenBtnEl.addEventListener('click', () => openBillingModal('kitchen'));
   const openKitchenDisplayBtn = document.getElementById('open-kitchen-display-btn');
@@ -2492,12 +1886,6 @@ function initializeApp() {
   if (productFormEl) productFormEl.addEventListener('submit', handleProductSubmit);
   const refreshReportBtnEl = document.getElementById('refresh-report-btn');
   if (refreshReportBtnEl) refreshReportBtnEl.addEventListener('click', renderReports);
-
-  const quickSaleBtn = document.getElementById('quick-sale-btn');
-  if (quickSaleBtn) quickSaleBtn.addEventListener('click', () => setActiveModule('pos'));
-
-  const openSettingsBtn = document.getElementById('open-settings-btn');
-  if (openSettingsBtn) openSettingsBtn.addEventListener('click', () => setActiveModule('settings'));
 
   const activateBizBtn = document.getElementById('activate-business-btn');
   if (activateBizBtn) activateBizBtn.addEventListener('click', activateBusiness);
@@ -2520,21 +1908,20 @@ function initializeApp() {
   const addTableBtn = document.getElementById('add-table-btn');
   if (addTableBtn) addTableBtn.addEventListener('click', addTableToCurrentRoom);
 
-  bindCompanySettingsForm();
+  bindCompanySettingsForm();initEnhancements();initShiftReports();initConnectionModes();initDocumentRelay();
 
   const pinInputEl = document.getElementById('pin-input');
   if (pinInputEl) {
     pinInputEl.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') loginUser();
+      if (event.key === 'Enter') {event.preventDefault();loginUser();}
     });
   }
 
-  loadCompanySettings();
-  fetchUsersFromServer();
-  loadCustomers();
-  fetchOrdersFromServer();
+  initializeBusinesses();
+
 
   showLogin();
 }
 
+document.getElementById('login-server-btn')?.addEventListener('click',openConnectionSettings);
 initializeApp();
