@@ -51,7 +51,7 @@ app.use('/api', (req,res,next) => {
     const cash = ['admin','gerente','cajero'].includes(role);
     const finance = ['admin','gerente','contador'].includes(role);
     const orders = ['admin','gerente','cajero','mesero','cocina'].includes(role);
-    if ((/^\/(sales|shifts)(\/|$)/.test(req.path) && !cash) || (/^\/invoices/.test(req.path) && !cash && !finance) || (/^\/(reports|purchases|expenses|vat-book|admin)(\/|$)/.test(req.path) && !finance) || (/^\/orders/.test(req.path) && !orders)) return res.status(403).json({ error: 'Permiso insuficiente' });
+    if (((/^\/sales(\/|$)/.test(req.path) || /^\/shifts(\/|$)/.test(req.path)) && !cash && !(req.method==='GET' && /^\/shifts\/reports(\/|$)/.test(req.path) && finance)) || (/^\/invoices/.test(req.path) && !cash && !finance) || (/^\/(reports|purchases|expenses|vat-book|admin)(\/|$)/.test(req.path) && !finance) || (/^\/orders/.test(req.path) && !orders)) return res.status(403).json({ error: 'Permiso insuficiente' });
     next();
   });
 });

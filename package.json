@@ -1,6 +1,6 @@
 {
   "name": "pos-control-multiplatform",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Punto de venta con servidor local, ventas transaccionales y clientes web.",
   "author": "POS Control",
   "main": "electron-main.js",

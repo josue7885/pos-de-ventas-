@@ -1058,15 +1058,73 @@ async function handleProductSubmit(event) {
   } catch(error) { alert(error.message);await syncFromServer().catch(()=>{}); }
 }
 async function openShift() {
+  if(pendingShiftReport())return openShiftReport('Z');
   const raw=prompt('Efectivo inicial de caja:','0');if(raw===null)return;
   try { await apiRequest('/shifts/open',{method:'POST',body:JSON.stringify({openingCash:raw})});await syncFromServer(); }
   catch(error) { alert(error.message); }
 }
-async function closeShift() {
-  if (pendingSale || saleInFlight) return alert('Confirma primero la venta pendiente.');
-  const raw=prompt('Efectivo contado al cierre:','0');if(raw===null)return;
-  try { await apiRequest('/shifts/close',{method:'POST',body:JSON.stringify({observedCash:raw,shiftId:state.shift.id})});await syncFromServer(); }
-  catch(error) { alert(error.message); }
+let shiftReportBusy=false,shiftReportHistorySequence=0;
+function shiftReportPendingKey(){return `pos_shift_report_${getBusinessId()}_${currentEmployee?.id}`;}
+function pendingShiftReport(){try{return JSON.parse(sessionStorage.getItem(shiftReportPendingKey())||'null');}catch{return null;}}
+function openShiftReport(type){
+ if(!['admin','gerente','cajero'].includes(currentEmployee?.role))return alert('Solo administrador, gerente o cajero puede emitir cortes.');
+ if(pendingSale||saleInFlight)return alert('Confirma primero la venta pendiente.');
+ const pending=pendingShiftReport();
+ if(!state.shift.isOpen&&!pending)return alert('No hay un turno abierto. Puedes reimprimir los cortes del historial.');
+ if(pending)type=pending.body.type;
+ const form=document.getElementById('shift-report-form');form.reset();form.dataset.type=type;form.dataset.shiftId=String(pending?.body.shiftId||state.shift.id);
+ document.getElementById('shift-report-title').textContent=`Corte ${type}${pending?' - reintentar operación pendiente':''}`;
+ document.getElementById('shift-report-description').textContent={X:'Consulta acumulada del turno. No cierra ni reinicia la caja.',Y:'Arqueo parcial acumulado. Registra el efectivo contado sin cerrar ni reiniciar la caja.',Z:'Cierre definitivo del turno. Después debes abrir otro turno para vender.'}[type];
+ document.getElementById('shift-count-field').classList.toggle('hidden',type==='X');
+ const count=document.getElementById('shift-report-count');count.required=type!=='X';count.disabled=type==='X'||Boolean(pending);count.value=pending?.body.observedCash??'';
+ const note=document.getElementById('shift-report-note');note.value=pending?.body.note||'';note.disabled=Boolean(pending);
+ document.getElementById('shift-report-status').textContent=pending?'La respuesta anterior no se confirmó. Reintenta para recuperar el mismo corte.':'';
+ openFloating('shift-report-dialog',type==='X'?'shift-report-note':'shift-report-count');
+}
+async function closeShift(){openShiftReport('Z');}
+async function submitShiftReport(event){
+ event.preventDefault();if(shiftReportBusy)return;
+ if(pendingSale||saleInFlight)return alert('Confirma primero la venta pendiente.');
+ const form=document.getElementById('shift-report-form'),status=document.getElementById('shift-report-status'),button=document.getElementById('shift-report-submit');
+ let pending=pendingShiftReport();
+ if(!pending){const type=form.dataset.type;pending={key:newRequestId(),body:{type,shiftId:Number(form.dataset.shiftId),note:document.getElementById('shift-report-note').value.trim()}};if(type!=='X')pending.body.observedCash=document.getElementById('shift-report-count').value;}
+ // Preserve the same request after a lost response or page reload.
+ sessionStorage.setItem(shiftReportPendingKey(),JSON.stringify(pending));
+ const output=document.getElementById('shift-report-output').value,popup=output==='print'?openReceiptWindow():null;
+ shiftReportBusy=true;button.disabled=true;status.textContent='Guardando corte…';
+ let result;
+ try{
+  result=await apiRequest('/shifts/reports',{method:'POST',headers:{'Idempotency-Key':pending.key},body:JSON.stringify(pending.body)});
+  sessionStorage.removeItem(shiftReportPendingKey());closeFloating('shift-report-dialog');
+ }catch(error){if(popup&&!popup.closed)popup.close();if(error.status>=400&&error.status<500)sessionStorage.removeItem(shiftReportPendingKey());status.textContent=error.message+' Si no se confirmó, vuelve a pulsar Guardar para recuperar el mismo corte.';}
+ finally{shiftReportBusy=false;button.disabled=false;renderCashPanel();}
+ if(!result)return;
+ await syncFromServer().catch(()=>{});await loadShiftReports();
+ try{if(output==='print')await printShiftReport(result.report.id,popup);else if(output==='pdf')await downloadFromApi(`/shifts/reports/${result.report.id}/pdf`,`corte-${result.report.number}.pdf`);}
+ catch(error){alert(`Corte ${result.report.number} guardado. ${error.message} Puedes volver a descargarlo o imprimirlo desde el historial.`);}
+}
+async function printShiftReport(id,popup=openReceiptWindow()){
+ if(window.POSNative?.active)return downloadFromApi(`/shifts/reports/${id}/pdf`,`corte-${id}.pdf`);
+ if(!popup)throw Error('Permite ventanas emergentes para imprimir o descarga el PDF.');
+ const user=currentEmployee?.id;
+ try{const res=await posFetch(getApiUrl(`/shifts/reports/${id}/html`));if(!res.ok)throw Error('No se pudo preparar la impresión.');const html=await res.text();if(currentEmployee?.id!==user)throw Error('La sesión cambió.');if(popup.closed)throw Error('La ventana de impresión se cerró.');popup.document.open();popup.document.write(html);popup.document.close();popup.focus();popup.print();}
+ catch(error){if(!popup.closed)popup.close();throw error;}
+}
+async function loadShiftReports(){
+ const body=document.getElementById('shift-reports-body'),status=document.getElementById('shift-reports-status');if(!body||!currentEmployee)return;
+ const seq=++shiftReportHistorySequence,user=currentEmployee.id;
+ try{const data=await apiRequest('/shifts/reports');if(seq!==shiftReportHistorySequence||currentEmployee?.id!==user)return;
+  body.innerHTML=data.reports.map(r=>{const m=c=>new Intl.NumberFormat('es-SV',{style:'currency',currency:r.currency}).format(c/100),diff=r.differenceCents===null?'Sin conteo':r.differenceCents<0?'Faltante '+m(-r.differenceCents):r.differenceCents>0?'Sobrante '+m(r.differenceCents):'Cuadrado';return `<tr><td>${escapeHtml(r.number)}</td><td>${r.shiftId}</td><td>${escapeHtml(new Date(r.createdAt).toLocaleString())}</td><td>${escapeHtml(r.employeeName)}</td><td>${escapeHtml(m(r.expectedCents))}</td><td>${r.observedCents===null?'—':escapeHtml(m(r.observedCents))}</td><td>${escapeHtml(diff)}</td><td><button type="button" class="ghost-btn small" data-shift-action="pdf" data-id="${r.id}">PDF</button> <button type="button" class="ghost-btn small" data-shift-action="print" data-id="${r.id}">Imprimir</button> <button type="button" class="ghost-btn small" data-shift-action="json" data-id="${r.id}">JSON</button></td></tr>`;}).join('');
+  status.textContent=data.reports.length?'Últimos 200 cortes como máximo. En Android/iOS, abre el PDF compartido en un lector y usa su opción Imprimir.':'Aún no hay cortes guardados. Los cierres anteriores a esta actualización no tienen un corte emitido.';
+ }catch(error){if(seq===shiftReportHistorySequence&&currentEmployee?.id===user)status.textContent=error.message;}
+}
+function initShiftReports(){
+ document.getElementById('shift-report-form').addEventListener('submit',submitShiftReport);
+ document.getElementById('shift-report-x').addEventListener('click',()=>openShiftReport('X'));
+ document.getElementById('shift-report-retry').addEventListener('click',()=>openShiftReport('Z'));
+ document.getElementById('shift-report-y').addEventListener('click',()=>openShiftReport('Y'));
+ document.getElementById('shift-reports-refresh').addEventListener('click',loadShiftReports);
+ document.getElementById('shift-reports-body').addEventListener('click',async event=>{const b=event.target.closest('[data-shift-action]');if(!b||b.disabled)return;b.disabled=true;try{if(b.dataset.shiftAction==='print')await printShiftReport(b.dataset.id);else await downloadFromApi(`/shifts/reports/${b.dataset.id}/${b.dataset.shiftAction}`,`corte-${b.dataset.id}.${b.dataset.shiftAction}`);}catch(error){alert(error.message);}finally{b.disabled=false;}});
 }
 
 function renderCashPanel() {
@@ -1074,7 +1132,12 @@ function renderCashPanel() {
   const shiftSummary = document.getElementById('shift-summary');
 
   const toggleShiftButton = document.getElementById('toggle-shift-btn');
-  toggleShiftButton.textContent = state.shift.isOpen ? 'Cerrar turno' : 'Abrir turno';
+  toggleShiftButton.textContent = state.shift.isOpen ? 'Corte Z · Cerrar turno' : 'Abrir turno';
+  const canIssue=['admin','gerente','cajero'].includes(currentEmployee?.role);
+  toggleShiftButton.disabled=!canIssue;
+  document.getElementById('shift-report-retry').classList.toggle('hidden',!canIssue||!pendingShiftReport());
+  for(const id of ['shift-report-x','shift-report-y'])document.getElementById(id).disabled=!canIssue||!state.shift.isOpen;
+  if(activeModule==='cash')loadShiftReports();
   toggleShiftButton.onclick = state.shift.isOpen ? closeShift : openShift;
 
   if (!state.shift.isOpen) {
@@ -1082,6 +1145,7 @@ function renderCashPanel() {
       <div class="empty-state">
         <p>No hay un turno abierto.</p>
         <p>Abre la caja para comenzar a vender.</p>
+        ${state.shift.id ? `<p>Último turno: ${state.shift.id} · Efectivo esperado: ${currency(state.shift.currentCash)} · Contado: ${currency(state.shift.observedCash)} · ${state.shift.difference<0?'Faltante':state.shift.difference>0?'Sobrante':'Cuadrado'}: ${currency(Math.abs(state.shift.difference||0))}</p>` : ''}
       </div>
     `;
   } else {
@@ -1089,7 +1153,7 @@ function renderCashPanel() {
       <div class="shift-info">
         <p><strong>Turno abierto:</strong> ${new Date(state.shift.openedAt).toLocaleString()}</p>
         <p><strong>Apertura:</strong> ${currency(state.shift.openingCash)}</p>
-        <p><strong>Dinero actual:</strong> ${currency(state.shift.currentCash)}</p>
+        <p><strong>Efectivo esperado:</strong> ${currency(state.shift.currentCash)}</p>
         <p><strong>Efectivo neto (ventas + abonos − devoluciones):</strong> ${currency(state.shift.cashSales)}</p>
         <p><strong>Tarjeta neta (ventas + abonos − devoluciones):</strong> ${currency(state.shift.cardSales)}</p>
         <p><strong>Transferencias:</strong> ${currency(state.shift.transferSales)}</p>
@@ -1097,17 +1161,18 @@ function renderCashPanel() {
     `;
   }
 
-  const totalSales = state.sales.reduce((sum, sale) => sum + sale.total, 0);
-  const salesCount = state.sales.length;
-  const totalProductsSold = state.sales.reduce((sum, sale) => sum + sale.items.reduce((x, item) => x + item.qty, 0), 0);
+  const shiftSales = state.sales.filter(sale=>sale.shift_id===state.shift.id);
+  const totalSales = shiftSales.reduce((sum, sale) => sum + sale.total, 0);
+  const salesCount = shiftSales.length;
+  const totalProductsSold = shiftSales.reduce((sum, sale) => sum + sale.items.reduce((x, item) => x + item.qty, 0), 0);
 
   shiftSummary.innerHTML = `
     <div class="metric-card">
-      <span>Ventas</span>
+      <span>Ventas del turno</span>
       <strong>${salesCount}</strong>
     </div>
     <div class="metric-card">
-      <span>Ingresos</span>
+      <span>Total emitido</span>
       <strong>${currency(totalSales)}</strong>
     </div>
     <div class="metric-card">
@@ -1844,7 +1909,7 @@ function initializeApp() {
   const addTableBtn = document.getElementById('add-table-btn');
   if (addTableBtn) addTableBtn.addEventListener('click', addTableToCurrentRoom);
 
-  bindCompanySettingsForm();initEnhancements();
+  bindCompanySettingsForm();initEnhancements();initShiftReports();
 
   const pinInputEl = document.getElementById('pin-input');
   if (pinInputEl) {

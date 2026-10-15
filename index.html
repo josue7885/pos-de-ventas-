@@ -621,6 +621,8 @@
               </div>
 
               <div id="cash-panel-content" class="cash-panel-content"></div>
+              <div class="toolbar-actions"><button id="shift-report-retry" type="button" class="ghost-btn hidden">Recuperar corte pendiente</button><button id="shift-report-x" type="button" class="ghost-btn">Corte X · Consulta</button><button id="shift-report-y" type="button" class="ghost-btn">Corte Y · Arqueo parcial</button></div>
+              <p>X consulta sin cerrar. Y registra un conteo parcial sin cerrar ni reiniciar. Z cierra definitivamente. La diferencia compara únicamente efectivo.</p>
             </div>
 
             <div class="panel">
@@ -630,6 +632,7 @@
               <div id="shift-summary" class="summary-cards"></div>
             </div>
           </div>
+          <div class="panel"><div class="panel-header"><h3>Historial de cortes</h3><button id="shift-reports-refresh" type="button" class="ghost-btn">Actualizar</button></div><p id="shift-reports-status" role="status"></p><div class="table-wrap"><table><thead><tr><th>Corte</th><th>Turno</th><th>Fecha local</th><th>Responsable</th><th>Esperado</th><th>Contado</th><th>Diferencia</th><th>Documento</th></tr></thead><tbody id="shift-reports-body"></tbody></table></div></div>
         </section>
 
         <section id="module-documents" class="module hidden">
@@ -801,6 +804,7 @@
       <header class="floating-header"><h3 id="customer-directory-title">Clientes registrados</h3><button type="button" class="icon-close" data-close-floating aria-label="Cerrar clientes registrados">×</button></header>
       <div class="floating-body"><div id="customer-directory-search"></div><p id="customer-directory-status" role="status"></p><div class="table-wrap" tabindex="0" aria-label="Clientes registrados"><table><thead><tr><th>Cliente</th><th>Documento</th><th>Teléfono</th><th>Correo</th><th>Acciones</th></tr></thead><tbody id="customer-directory-body"></tbody></table></div><div class="floating-actions"><button id="directory-new-customer" type="button" class="primary-btn">Registrar cliente</button><button id="directory-general-customer" type="button" class="ghost-btn">Usar cliente general</button></div></div>
     </dialog>
+        <dialog id="shift-report-dialog" class="floating-dialog" aria-labelledby="shift-report-title"><div class="panel"><div class="panel-header"><h3 id="shift-report-title">Corte de caja</h3><button type="button" class="ghost-btn" data-close-floating>Cerrar</button></div><p id="shift-report-description"></p><form id="shift-report-form"><div id="shift-count-field" class="field-group"><label for="shift-report-count">Efectivo contado físicamente (sin tarjeta ni transferencia)</label><input id="shift-report-count" type="number" min="0" max="1000000" step="0.01" required /></div><div class="field-group"><label for="shift-report-note">Observación</label><textarea id="shift-report-note" maxlength="500"></textarea></div><div class="field-group"><label for="shift-report-output">Al guardar</label><select id="shift-report-output"><option value="pdf">Generar PDF</option><option value="print">Imprimir (en móvil: compartir PDF)</option><option value="save">Solo guardar en historial</option></select></div><p id="shift-report-status" role="status"></p><button id="shift-report-submit" type="submit" class="primary-btn">Guardar corte</button></form></div></dialog>
     <script src="app_utils.js"></script>
     <script src="pos-math.js"></script>
     <script src="native-platform.js"></script>
@@ -809,5 +813,7 @@
     <script src="business-ui.js"></script>
     <script src="app.js"></script>
     <script src="app_exec_pin.js"></script>
+
+
   </body>
 </html>

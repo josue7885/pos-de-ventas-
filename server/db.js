@@ -314,6 +314,8 @@ async function openDatabase(dbPath,adminPin,adminName,releaseLock) {
     db.prepare(`CREATE TABLE IF NOT EXISTS sale_requests (request_key TEXT PRIMARY KEY, user_id INTEGER NOT NULL, fingerprint TEXT NOT NULL, sale_id INTEGER NOT NULL)`).run();
     db.prepare(`CREATE TABLE IF NOT EXISTS shifts (id INTEGER PRIMARY KEY AUTOINCREMENT, opened_by INTEGER, closed_by INTEGER, opened_at TEXT, closed_at TEXT, opening_cents INTEGER NOT NULL, observed_cents INTEGER)`).run();
     db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS one_open_shift ON shifts((1)) WHERE closed_at IS NULL`).run();
+    db.prepare("CREATE TABLE IF NOT EXISTS shift_reports (id INTEGER PRIMARY KEY AUTOINCREMENT,shift_id INTEGER NOT NULL,type TEXT NOT NULL CHECK(type IN ('X','Y','Z')),created_at TEXT NOT NULL,snapshot TEXT NOT NULL)").run();
+    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS one_z_per_shift ON shift_reports(shift_id) WHERE type='Z'").run();
     ensureColumn('sales', 'shift_id', 'INTEGER');
     ensureColumn('sales', 'prices_include_tax', 'INTEGER NOT NULL DEFAULT 0');
     ensureColumn('sales', 'credit_due_date', 'TEXT');

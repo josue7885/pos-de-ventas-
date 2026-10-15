@@ -35,7 +35,7 @@ module.exports = function registerCore(app, getDb, { profile, nextInvoiceData, a
     return { id: shift.id, isOpen: !shift.closed_at, openingCash: shift.opening_cents / 100,
       currentCash: (shift.opening_cents + totals.efectivo) / 100, cashSales: totals.efectivo / 100,
       cardSales: totals.tarjeta / 100, transferSales: totals.transferencia / 100,
-      openedAt: shift.opened_at, closedAt: shift.closed_at, observedCash: (shift.observed_cents || 0) / 100 };
+      openedAt: shift.opened_at, closedAt: shift.closed_at, observedCash: shift.observed_cents === null ? null : shift.observed_cents / 100, difference: shift.observed_cents === null ? null : (shift.observed_cents-shift.opening_cents-totals.efectivo)/100 };
   }
   app.get('/api/sync', handle((req, res) => {
     const financial = ['admin', 'gerente', 'cajero', 'contador'].includes(req.user.role);
@@ -71,15 +71,7 @@ module.exports = function registerCore(app, getDb, { profile, nextInvoiceData, a
     })();
     res.json({ shift: shiftState() });
   }));
-  app.post('/api/shifts/close', handle((req, res) => {
-    const observed = cents(req.body.observedCash);
-    db().transaction(() => {
-      const shift = db().prepare('SELECT id FROM shifts WHERE closed_at IS NULL').get();
-      if (!shift || shift.id !== Number(req.body.shiftId)) fail(409, 'La caja cambió. Actualiza antes de cerrar.');
-      db().prepare('UPDATE shifts SET closed_at = ?, closed_by = ?, observed_cents = ? WHERE id = ?').run(new Date().toISOString(), req.user.id, observed, shift.id);
-    })();
-    res.json({ shift: shiftState() });
-  }));
+  require('./shift-reports').register(app,getDb,{profile,shiftState});
   const validProduct=body=>commerce.product({type:profile().default_product_type,...body});
   app.post('/api/products', handle((req, res) => {
     if (!requireAdminOrManager(req, res)) return;

@@ -64,6 +64,14 @@ const fs=require('fs'),os=require('os'),path=require('path'),{spawn}=require('ch
  if(process.env.POS_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.POS_SCREENSHOT_DIR,'ventas-movil.png'),fullPage:true});
  await page.setViewportSize({width:1600,height:1000});await page.locator('#billing-more [data-close-floating]').first().click();
  await page.click('#sale-inventory-btn');assert.ok(await page.locator('#sale-catalog').evaluate(el=>{const r=el.getBoundingClientRect();return Math.abs(r.left-(innerWidth-r.width)/2)<2}),'Floating inventory is centered');if(process.env.POS_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.POS_SCREENSHOT_DIR,'ventas-con-articulos.png'),fullPage:true});
- assert.deepEqual(errors,[]);console.log('Browser OK: login rejection, login, shared shift, checkout/rounding, lost-response replay, two-device sync, create user, floating inventory/customer forms, count, focus and mobile layout; no page errors.');
+ await page.locator('#sale-catalog [data-close-floating]').first().click();
+ await page.evaluate(()=>setActiveModule('cash'));
+ await page.click('#shift-report-x');await page.selectOption('#shift-report-output','save');await page.click('#shift-report-submit');await page.locator('#shift-report-dialog').waitFor({state:'hidden'});await page.locator('#shift-reports-body').getByText(/X-/).first().waitFor();
+ await page.setViewportSize({width:390,height:844});await page.click('#shift-report-y');await page.fill('#shift-report-count','0');await page.selectOption('#shift-report-output','save');
+ assert.ok(await page.locator('#shift-report-dialog').evaluate(el=>el.getBoundingClientRect().width<=innerWidth));if(process.env.POS_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.POS_SCREENSHOT_DIR,'corte-movil.png'),fullPage:true});
+ await page.click('#shift-report-submit');await page.locator('#shift-report-dialog').waitFor({state:'hidden'});await page.locator('#shift-reports-body').getByText(/Y-/).first().waitFor();assert.equal(await page.evaluate(()=>state.shift.isOpen),true);
+ await page.click('#toggle-shift-btn');await page.fill('#shift-report-count','0');await page.selectOption('#shift-report-output','save');await page.click('#shift-report-submit');await page.locator('#shift-report-dialog').waitFor({state:'hidden'});await page.locator('#shift-reports-body').getByText(/Z-/).first().waitFor();assert.equal(await page.evaluate(()=>state.shift.isOpen),false);
+ await page.setViewportSize({width:1600,height:1000});if(process.env.POS_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.POS_SCREENSHOT_DIR,'cortes-historial.png'),fullPage:true});
+ assert.deepEqual(errors,[]);console.log('Browser OK: login rejection, login, shared shift, checkout/rounding, lost-response replay, two-device sync, create user, floating inventory/customer forms, count, focus, mobile layout and X/Y/Z cash reports; no page errors.');
  }finally{if(browser)await browser.close();await new Promise(resolve=>{server.once('exit',resolve);server.kill('SIGTERM');});fs.rmSync(dir,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);process.exitCode=1});

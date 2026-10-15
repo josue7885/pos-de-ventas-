@@ -144,3 +144,7 @@ Consulta la [guía de ventas al crédito, notas, abonos y WhatsApp](docs/CREDITO
 ## Instalación 1.2.0
 
 Asistente de primer inicio, modo servidor o terminal, puerto local estable, instalador Windows y portable separados, paquetes macOS/Linux y preparación Android/iOS con compartir nativo. El flujo de compilación está en [Actions → Installers](https://github.com/josue7885/pos-de-ventas-/actions/workflows/installers.yml). Lee [la guía de instalación](README_RELEASE.md) para elegir el archivo correcto, conservar datos y conocer los requisitos de firma.
+
+## Cortes de caja 1.2.1
+
+Caja → Turno y cierre incorpora X (consulta), Y (arqueo parcial) y Z (cierre definitivo), desglose por medio de pago, faltantes/sobrantes e historial con PDF, impresión y JSON. Consulta [la guía de cortes](docs/CORTES_DE_CAJA.md). La impresión móvil se realiza abriendo el PDF compartido en un lector compatible.

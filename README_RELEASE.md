@@ -1,12 +1,20 @@
-# Instalación de POS Control 1.2.0
+# Instalación de POS Control 1.2.1
 
 El escritorio incluye su propio servidor: no necesitas instalar Node.js para usar el instalador. Android e iOS son terminales del mismo servidor. El servidor debe permanecer encendido para cobrar y sincronizar; no se registran ventas sin conexión.
 
-## Estado verificado de esta revisión
+## Cambios 1.2.1
+
+Cortes X/Y/Z, conciliación de efectivo, separación de tarjetas/transferencias/abonos/devoluciones, historial por negocio y exportación PDF/HTML/JSON. [Instrucciones de cortes](docs/CORTES_DE_CAJA.md).
+
+La nueva interfaz es compartida por web, escritorio y móviles. Es necesario actualizar el servidor y recompilar cada aplicación instalada. No se han generado instaladores ni un APK nuevos de 1.2.1 en esta revisión. El usuario confirmó que el APK anterior 1.2.0 abre y funciona en su teléfono Android conectado al servidor de Windows; esto no verifica todavía los cortes nuevos en el dispositivo. El modo local independiente del teléfono permanece pendiente.
+
+En 1.2.1 pasaron 64 pruebas del servidor (incluido el recorrido DOM con HTTP real), 4 pruebas de instalación y el recorrido Chromium de ventas con cortes X/Y/Z en vista de escritorio y móvil. Se revisaron visualmente las dos páginas del PDF de corte. No se ha probado una impresora física.
+
+## Estado verificado de 1.2.0
 
 El código 1.2.0 está en `fix/backend-auth-sales-sync`. Pasaron 59 pruebas del servidor, 4 de instalación y los dos recorridos de Chromium. El backend empaquetado en Linux arrancó con el Node integrado, sirvió los recursos públicos, autenticó al administrador y conservó un producto después del reinicio. Se generaron paquetes Linux AppImage, DEB y TAR.GZ localmente. El asistente se comprobó en navegador; la apertura de la ventana nativa no pudo ejecutarse en este entorno por restricciones de sockets del sistema.
 
-La ejecución [Installers del 14 de octubre de 2026](https://github.com/josue7885/pos-de-ventas-/actions/runs/38500460194) quedó bloqueada **antes de ejecutar pruebas o compilaciones**. GitHub informó: `The job was not started because your account is locked due to a billing issue.` No hay paquetes descargables de esa ejecución. El titular debe revisar la facturación de GitHub y después volver a ejecutar los trabajos. Esta revisión no generó ni validó instaladores nativos Windows/macOS/Android/iOS; sus scripts y flujo de compilación están preparados, sujetos a la primera ejecución y pruebas en esos sistemas.
+La ejecución [Installers del 14 de octubre de 2026](https://github.com/josue7885/pos-de-ventas-/actions/runs/38500460194) quedó bloqueada **antes de ejecutar pruebas o compilaciones**. GitHub informó: `The job was not started because your account is locked due to a billing issue.` No hay paquetes descargables de esa ejecución. El titular debe revisar la facturación de GitHub y después volver a ejecutar los trabajos. Esa ejecución no generó instaladores nativos. Posteriormente el usuario compiló e instaló el APK Android 1.2.0 localmente y confirmó su funcionamiento conectado al servidor. Windows/macOS/iOS siguen pendientes de compilación y validación nativa.
 
 Mientras se resuelve GitHub Actions puedes compilar localmente con los comandos de esta guía. No se modificó la facturación ni se contrató ningún servicio.
 
