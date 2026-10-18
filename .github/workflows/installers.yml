@@ -1,0 +1,146 @@
+name: Installers
+on:
+  workflow_dispatch:
+  push:
+    branches: [fix/backend-auth-sales-sync]
+    paths:
+      - '.github/workflows/installers.yml'
+      - 'package*.json'
+      - '*.js'
+      - '*.html'
+      - '*.css'
+      - '*.svg'
+      - '*.webmanifest'
+      - 'server/**'
+      - 'tests/**'
+      - 'desktop/**'
+      - 'scripts/prepare-*.cjs'
+      - 'capacitor.config.json'
+permissions:
+  contents: read
+concurrency:
+  group: installers-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run setup:server
+      - run: npm test
+      - run: npm run test:installation
+      - run: xvfb-run -a node tests/desktop-smoke.cjs
+  desktop:
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            command: npm run build:win
+            name: Windows-x64
+            bundle: dist/win-unpacked
+          - os: ubuntu-latest
+            command: npm run build:linux
+            name: Linux-x64
+            bundle: dist/linux-unpacked
+          - os: macos-26
+            command: npm run build:mac -- --arm64 --x64
+            name: macOS-arm64-x64
+            bundle: dist/mac-arm64/POS Control.app
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: ${{ matrix.command }}
+      - run: node scripts/test-packaged.cjs "${{ matrix.bundle }}"
+      - name: Portable Windows folder (keeps ICU and resources beside the executable)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          Compress-Archive -Path dist/win-unpacked/* -DestinationPath "dist/POS-Control-$version-Windows-x64-Carpeta.zip"
+      - run: npm run checksums
+      - uses: actions/upload-artifact@v4
+        with:
+          name: POS-${{ matrix.name }}-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.zip
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.tar.gz
+            dist/SHA256SUMS.txt
+  android:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - run: npm ci
+      - run: npm run android:sync
+      - run: chmod +x gradlew && ./gradlew assembleDebug
+        working-directory: android
+      - run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/POS-Control-Android-pruebas.apk
+          npm run checksums
+      - uses: actions/upload-artifact@v4
+        with:
+          name: POS-Android-pruebas-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            dist/*.apk
+            dist/SHA256SUMS.txt
+  ios:
+    needs: checks
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run ios:sync
+      - name: Compile for simulator (no Apple signing credentials)
+        run: xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath .build/ios CODE_SIGNING_ALLOWED=NO build
+      - run: |
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent .build/ios/Build/Products/Debug-iphonesimulator/App.app dist/POS-Control-iOS-Simulador.zip
+          npm run checksums
+      - uses: actions/upload-artifact@v4
+        with:
+          name: POS-iOS-simulador-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS.txt

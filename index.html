@@ -3,8 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>POS Control</title>
+    <title>POS Control · Sistema integral de ventas</title>
     <link rel="stylesheet" href="style.css" />
+  <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
   </head>
   <body>
     <div id="login-screen" class="auth-screen">
@@ -15,32 +17,46 @@
           <h1 id="login-company-name">Control de ventas</h1>
         </div>
 
-        <label class="field-label" for="employee-select">Empleado</label>
-        <select id="employee-select" class="field-input"></select>
+        <form id="login-form" class="auth-form">
+          <label class="field-label" for="business-select">Negocio</label>
+          <select id="business-select" class="field-input"><option value="principal">Negocio principal</option></select>
+          <label class="field-label" for="employee-select">Usuario</label>
+          <select id="employee-select" class="field-input" autocomplete="username" required>
+            <option value="">Cargando usuarios...</option>
+          </select>
 
-        <label class="field-label" for="pin-input">PIN</label>
-        <input id="pin-input" class="field-input" type="password" maxlength="4" placeholder="••••" autocomplete="off" />
+          <label class="field-label" for="pin-input">PIN de acceso</label>
+          <div class="pin-input-wrap">
+            <input id="pin-input" class="field-input" type="password" inputmode="numeric" pattern="[0-9]{4,12}" minlength="4" maxlength="12" placeholder="Ingresa tu PIN" autocomplete="current-password" required />
+            <button id="toggle-login-pin" class="pin-visibility-btn" type="button" aria-label="Mostrar PIN" aria-pressed="false">Mostrar</button>
+          </div>
 
-        <button id="login-btn" class="primary-btn">Ingresar</button>
-        <p id="login-error" class="error-text hidden">Credenciales inválidas</p>
+          <p id="login-error" class="error-text hidden" role="alert" aria-live="polite"></p>
+          <button id="login-btn" class="primary-btn" type="submit">Ingresar</button>
+          <p class="auth-footnote">Tu acceso es personal. No compartas tu PIN.</p>
+        </form>
+
+        <button id="login-server-btn" class="ghost-btn" type="button">Configurar servidor</button>
+
       </div>
     </div>
 
     <div id="app-shell" class="app-shell hidden">
-      <aside class="sidebar">
+      <aside class="sidebar" id="app-sidebar">
+        <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-controls="nav-menu" aria-expanded="true" aria-label="Minimizar menú" title="Minimizar menú"><span aria-hidden="true">☰</span><span class="sidebar-toggle-label">Minimizar menú</span></button>
         <div class="brand-box">
           <img id="sidebar-company-logo" class="sidebar-logo hidden" alt="Logo de la empresa" />
           <div class="brand-badge" id="sidebar-brand-badge">POS</div>
           <div>
             <strong id="sidebar-company-name">POS Control</strong>
-            <small id="sidebar-company-subtitle">Version 2.0</small>
+            <small id="sidebar-company-subtitle">Ventas y administración</small>
           </div>
         </div>
 
-        <nav id="nav-menu" class="nav-menu"></nav>
+        <nav id="nav-menu" class="nav-menu" aria-label="Áreas de trabajo"></nav>
 
         <div class="sidebar-footer">
-          <button id="logout-btn" class="ghost-btn">Cerrar sesión</button>
+          <button id="logout-btn" class="ghost-btn" aria-label="Cerrar sesión" title="Cerrar sesión"><span aria-hidden="true">↪</span><span class="nav-label">Cerrar sesión</span></button>
         </div>
       </aside>
 
@@ -50,99 +66,116 @@
             <p class="eyebrow">Usuario activo</p>
             <h2 id="user-name">Empleado</h2>
           </div>
-          <div class="topbar-status">
+          <div class="topbar-status"><strong id="active-business-name">Negocio principal</strong><button id="switch-business-btn" class="ghost-btn small" type="button">Cambiar negocio</button>
             <span id="user-role" class="role-badge">Rol</span>
             <span id="shift-status" class="status-badge neutral">Caja cerrada</span>
           </div>
         </header>
 
-        <section id="module-pos" class="module active">
-          <div id="admin-hero" class="admin-hero panel">
-            <div class="hero-copy">
-              <span class="eyebrow">Panel ejecutivo</span>
-              <h3>Administración empresarial</h3>
-              <p>Ventas, caja, inventario, usuarios, facturación y operación del restaurante desde una sola vista.</p>
-            </div>
-            <div class="hero-cta">
-              <button id="quick-sale-btn" class="primary-btn small" type="button">Venta rápida</button>
-              <button id="open-settings-btn" class="ghost-btn small" type="button">Configuración</button>
-              <button id="run-full-test-btn" class="ghost-btn small" type="button">Prueba flujo completo</button>
-            </div>
+        <details class="system-stock-search panel" aria-label="Consulta de existencias"><summary>Consultar producto y existencias</summary>
+          <label for="system-product-search">Producto del negocio activo</label>
+          <div class="stock-search-controls"><input id="system-product-search" type="search" placeholder="Nombre, SKU, código de barras o categoría" autocomplete="off" aria-controls="system-product-results" /><button id="refresh-stock-search" type="button" class="ghost-btn small">Actualizar</button></div>
+          <small id="stock-search-status" role="status"></small>
+          <div id="system-product-results" class="hidden"></div>
+        </details>
+
+        <div id="operation-recovery-panel" class="panel hidden" role="status"></div>
+
+        <section class="workspace-navigation" aria-label="Navegación de secciones">
+          <h2 id="workspace-title">Caja</h2>
+          <div id="module-tabs" class="module-tabs" role="tablist" aria-label="Caja"></div>
+        </section>
+
+        <section id="module-home" class="module hidden">
+          <div class="panel home-heading"><div><p class="eyebrow">Resumen del negocio</p><h3 id="home-business-name">Inicio</h3><p id="home-period-note"></p></div><div><label for="home-period">Período</label><select id="home-period"><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option></select></div></div>
+          <section class="home-quick-links panel" aria-label="Accesos rápidos"><h3>Accesos rápidos</h3><div><button type="button" class="primary-btn" data-home-action="sale">Nueva venta</button><button type="button" class="ghost-btn" data-home-action="inventory">Inventario</button><button type="button" class="ghost-btn" data-home-action="customer">Registrar cliente</button></div><p id="home-no-shortcuts" class="hidden">Usa el menú para acceder a tus funciones autorizadas.</p></section>
+          <p id="home-restricted" class="panel hidden">Tu rol tiene acceso a las funciones operativas. El resumen financiero está reservado a los roles autorizados.</p>
+          <div id="home-financial">
+            <div class="home-metrics"><article class="panel"><span>Ventas de hoy</span><strong id="home-today-total"></strong></article><article class="panel"><span>Total del período</span><strong id="home-period-total"></strong></article><article class="panel"><span>Ventas registradas</span><strong id="home-sale-count"></strong></article><article class="panel"><span>Promedio por venta</span><strong id="home-average"></strong></article></div>
+            <div class="home-charts"><section class="panel"><h3>Ventas por día</h3><p>Ventas emitidas, incluidas ventas al crédito. Sin descontar notas de crédito; consulta el resumen mensual para el neto.</p><div id="home-daily-chart" class="home-daily-chart" role="list" tabindex="0" aria-label="Ventas por día; desplaza horizontalmente para ver otras fechas"></div><details><summary>Ver importes por fecha</summary><div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Ventas</th><th>Total</th></tr></thead><tbody id="home-daily-table"></tbody></table></div></details></section><section class="panel"><h3>Productos más vendidos</h3><p>Los 5 primeros por cantidad, indicando su unidad de venta.</p><ol id="home-top-products" class="home-top-products"></ol></section></div>
           </div>
-
-          <div id="dashboard-summary" class="dashboard-summary"></div>
-
-          <div class="pos-grid">
-            <div class="catalog-panel panel">
-              <div class="panel-header">
-                <h3>Catálogo</h3>
-                <div class="catalog-tools">
-                  <select id="category-filter" class="mini-select">
-                    <option value="all">Todas</option>
-                  </select>
-                  <input id="search-input" type="text" placeholder="Buscar producto..." />
-                </div>
-              </div>
-              <div id="product-grid" class="product-grid"></div>
-            </div>
-
-            <aside class="ticket-panel panel">
-              <div class="panel-header vertical-header">
-                <h3>Ticket actual</h3>
-                <button id="clear-cart-btn" class="danger-btn small">Vaciar</button>
-              </div>
-
-              <ul id="cart-list" class="cart-list"></ul>
-
-              <div class="order-summary">
-                <div class="summary-row">
-                  <span>Subtotal</span>
-                  <strong>$<span id="subtotal-value">0.00</span></strong>
-                </div>
-                <div class="summary-row">
-                  <span>Descuento</span>
-                  <strong>-$<span id="discount-value">0.00</span></strong>
-                </div>
-                <div class="summary-row">
-                  <span>IVA</span>
-                  <strong>$<span id="tax-value">0.00</span></strong>
-                </div>
-                <div class="summary-row total-row">
-                  <span>Total</span>
-                  <strong>$<span id="total-value">0.00</span></strong>
-                </div>
-              </div>
-
-              <div class="payment-box compact-billing-box">
-                <div class="payment-header">
-                 <div>
-                   <span class="eyebrow">Facturación</span>
-                   <h4>Venta actual</h4>
-                 </div>
-                 <span class="payment-pill">Factura</span>
-                </div>
-
-                <div class="quick-sale-summary">
-                 <div>
-                   <small>Subtotal</small>
-                   <strong>$<span id="ticket-subtotal-mini">0.00</span></strong>
-                 </div>
-                 <div>
-                   <small>Total</small>
-                   <strong>$<span id="ticket-total-mini">0.00</span></strong>
-                 </div>
-                </div>
-
-                <button id="quick-billing-btn" class="ghost-btn small full-width-btn" type="button">Ingresar datos de factura</button>
-              </div>
-
-              <div class="action-row">
-                <button id="process-sale-btn" class="primary-btn large">Cobrar venta</button>
-                <button id="send-kitchen-btn" class="ghost-btn large" title="Enviar la orden actual a cocina">Enviar a cocina</button>
-                <button id="test-sale-btn" class="ghost-btn large" title="Crear una venta de prueba y generar factura">Venta de prueba</button>
-              </div>
-            </aside>
+        </section>
+        <section id="module-businesses" class="module hidden">
+          <div class="panel"><h3>Administrar negocios</h3><p>Cada negocio conserva sus propios usuarios, caja, productos, ventas y configuración. Para ingresar se requiere una cuenta de ese negocio.</p>
+            <div class="table-wrap"><table><thead><tr><th>Negocio</th><th>Acceso</th><th>Acciones</th></tr></thead><tbody id="businesses-list"></tbody></table></div>
           </div>
+          <div class="panel"><h3>Nuevo negocio</h3><form id="business-create-form" class="product-form">
+            <label for="business-name">Nombre</label><input id="business-name" maxlength="100" required />
+            <label for="business-type">Tipo inicial</label><select id="business-type"></select>
+            <label for="business-currency">Moneda</label><select id="business-currency"></select>
+            <label for="business-admin-name">Administrador inicial</label><input id="business-admin-name" value="Administrador" maxlength="100" required />
+            <label for="business-admin-pin">PIN inicial del nuevo negocio</label><input id="business-admin-pin" type="password" inputmode="numeric" pattern="[0-9]{6,12}" minlength="6" maxlength="12" autocomplete="new-password" required />
+            <p>El perfil inicial habilita módulos adecuados. Después puedes ajustar el impuesto, pagos y módulos en la Configuración del nuevo negocio.</p>
+            <button id="create-business-btn" class="primary-btn" type="submit">Crear negocio</button>
+            <button id="recover-business-btn" class="ghost-btn hidden" type="button">Consultar creación pendiente</button>
+          </form></div>
+        </section>
+        <section id="module-pos" class="module active sales-workspace">
+          <div class="sales-toolbar" aria-label="Accesos de venta">
+            <button type="button" data-sale-target="orders">Ver órdenes</button>
+            <button type="button" data-sale-target="tables">Mesas</button>
+            <button type="button" data-sale-target="reports" data-sale-section="expense-form" class="expense-shortcut">Registrar gasto</button>
+            <button type="button" id="billing-new-customer-btn">Agregar cliente</button><button type="button" id="customer-directory-btn">Clientes registrados</button>
+            <button type="button" data-sale-target="documents">Ver ventas</button>
+            <button type="button" data-sale-target="documents" data-sale-section="documents-quotes-content" id="sale-quotes-shortcut">Ver cotizaciones</button>
+            <button type="button" id="sale-inventory-btn" aria-controls="sale-catalog" aria-expanded="false">Inventario</button>
+            <button type="button" data-sale-target="cash">Turno y cierre</button>
+          </div>
+          <div id="sale-document-confirmation" class="panel hidden" aria-live="polite"></div>
+          <section id="sale-billing-panel" class="panel sale-billing-panel" aria-labelledby="sale-billing-title">
+            <div class="sale-caption"><h3 id="sale-billing-title">Nueva venta</h3><span>Comprobante interno</span><span id="sale-business-label"></span><span id="sale-date-label"></span></div>
+            <div class="sale-main-fields">
+              <div class="field-group"><label for="billing-customer-type">Tipo de documento</label><select id="billing-customer-type"><option value="consumidor_final">Consumidor final</option><option value="credito_fiscal">Crédito fiscal interno</option></select></div>
+              <div class="field-group sale-client-name"><label for="billing-customer-name">Cliente / razón social</label><div class="client-name-controls"><input id="billing-customer-name" placeholder="Cliente general" /><button id="billing-edit-customer-btn" type="button" class="ghost-btn small">Datos</button></div></div>
+              <div class="field-group"><label for="billing-payment-method">Tipo de pago</label><select id="billing-payment-method"><option value="efectivo">Efectivo</option><option value="tarjeta">Tarjeta</option><option value="transferencia">Transferencia</option></select></div>
+              <div class="field-group"><label for="billing-cash-received">Monto recibido</label><input id="billing-cash-received" type="number" step="0.01" min="0" placeholder="0.00" /></div>
+              <div class="field-group"><label for="billing-customer-email">Correo del cliente</label><input id="billing-customer-email" type="email" placeholder="cliente@correo.com" /></div>
+            </div>
+            <details id="billing-more" class="billing-more">
+              <summary>Buscar cliente y completar datos del comprobante</summary>
+              <div class="customer-lookup"><input id="billing-customer-search" type="search" placeholder="Buscar cliente por nombre, NIT o correo" aria-label="Buscar cliente" /><select id="customer-select" aria-label="Cliente registrado"><option value="">Cliente general / consumidor final</option></select><button id="save-customer-btn" class="ghost-btn small" type="button">Guardar cliente</button></div>
+              <div class="billing-fields">
+                <div class="field-group"><label for="billing-customer-nit">NIT / DUI / documento</label><input id="billing-customer-nit" placeholder="CF, NIT o DUI" /></div>
+                <div class="field-group"><label for="billing-customer-giro">Giro o actividad</label><input id="billing-customer-giro" placeholder="Actividad comercial" /></div>
+                <div class="field-group"><label for="billing-customer-phone">Teléfono</label><input id="billing-customer-phone" type="tel" placeholder="(503) 0000-0000" /></div>
+                <div class="field-group"><label for="billing-customer-address">Dirección</label><input id="billing-customer-address" placeholder="Dirección fiscal o domicilio" /></div>
+                <div class="field-group"><label for="billing-customer-department">Departamento</label><input id="billing-customer-department" /></div>
+                <div class="field-group"><label for="billing-customer-municipality">Municipio</label><input id="billing-customer-municipality" /></div>
+                <div class="field-group"><label for="billing-customer-notes">Observaciones</label><textarea id="billing-customer-notes" rows="1"></textarea></div>
+              </div>
+            </details>
+            <div id="sale-credit-fields" class="field-group hidden"><label for="sale-credit-due">Vencimiento del crédito (fecha UTC)</label><input id="sale-credit-due" type="date" /><small>Selecciona un cliente registrado. Se genera el saldo completo; los abonos se registran después en Documentos.</small></div>
+            <p id="selected-quote-label" role="status"></p>
+          </section>
+          <section class="panel sale-entry-panel" aria-label="Agregar productos a la venta">
+            <div class="sale-entry-row">
+              <div class="field-group product-lookup"><label for="search-input">Código o descripción del producto</label><input id="search-input" type="search" list="sale-product-options" autocomplete="off" placeholder="Escanea un código o escribe el nombre…" /><datalist id="sale-product-options"></datalist></div>
+              <div class="field-group"><label for="sale-entry-unit">Unidad</label><input id="sale-entry-unit" readonly value="—" /></div>
+              <div class="field-group"><label for="sale-entry-stock">Existencias</label><input id="sale-entry-stock" readonly value="—" /></div>
+              <div class="field-group"><label for="sale-entry-quantity">Cantidad</label><input id="sale-entry-quantity" type="number" min="0.001" step="1" value="1" /></div>
+              <div class="field-group"><label for="sale-entry-price">Precio con IVA</label><input id="sale-entry-price" readonly value="—" /></div>
+              <button id="sale-entry-add" class="primary-btn" type="button">Agregar</button>
+            </div>
+            <small id="sale-entry-status" role="status">Busca un producto para consultar precio y existencias.</small>
+          </section>
+          <div class="sale-totals-strip">
+            <div class="sale-discount"><label for="billing-discount-percent">Descuento general (%)</label><input id="billing-discount-percent" type="number" min="0" max="100" step="0.01" value="0" /><input id="billing-discount-reason" maxlength="240" placeholder="Motivo del descuento" aria-label="Motivo del descuento" /></div>
+            <div><span>Artículos con IVA</span><strong><span class="currency-code">USD</span> <span id="subtotal-value">0.00</span></strong></div>
+            <div><span>Descuento</span><strong>−<span class="currency-code">USD</span> <span id="discount-value">0.00</span></strong></div>
+            <div><span id="sale-tax-label">IVA incluido</span><strong><span class="currency-code">USD</span> <span id="tax-value">0.00</span></strong></div>
+            <div class="sale-grand-total"><span>Total de la venta</span><strong><span class="currency-code">USD</span> <span id="total-value">0.00</span></strong></div>
+          </div>
+          <div class="pos-grid sales-detail-grid">
+            <section class="panel sale-lines-panel" aria-label="Detalle de la venta">
+              <div class="sale-lines-heading"><h3>Artículos de la venta <span id="sale-line-count">0</span></h3><button id="clear-cart-btn" type="button" class="danger-btn small">Vaciar venta</button></div>
+              <div class="table-wrap sale-lines-scroll" tabindex="0" aria-label="Artículos; desplaza horizontalmente para ver todas las columnas"><table class="sale-lines-table"><thead><tr><th>Código</th><th>Descripción</th><th>Cantidad</th><th>Unidad</th><th>Precio con IVA</th><th>Importe</th><th>Tipo</th><th>Existencias</th><th>Quitar</th></tr></thead><tbody id="cart-list"></tbody></table></div>
+            </section>
+          </div>
+          <section class="panel sale-checkout-bar" aria-label="Cobro y entrega del comprobante">
+            <div class="receipt-delivery-options"><label for="sale-receipt-output">Al cobrar</label><select id="sale-receipt-output"><option value="ticket">Imprimir ticket (80 mm)</option><option value="pdf">Descargar PDF (A4)</option><option value="none">Solo guardar comprobante</option></select><label class="checkbox-label"><input id="sale-email-receipt" type="checkbox" checked /> Enviar PDF y JSON por correo</label><small>Correo automático con destinatario y SMTP configurado.</small></div>
+            <div class="action-row"><button id="save-quote-btn" class="ghost-btn" type="button">Guardar cotización</button><button id="send-kitchen-btn" class="ghost-btn" type="button">Enviar a cocina</button><button id="process-sale-btn" class="primary-btn large" type="button">Cobrar venta</button></div>
+          </section>
+          <details id="sale-catalog" class="panel sale-catalog"><summary>Inventario para agregar a la cuenta</summary><p>Consulta existencias y elige la cantidad. Precios finales con IVA incluido; no se vuelve a sumar al cobrar. El inventario se descuenta al confirmar la venta.</p><div class="catalog-tools"><label for="sale-inventory-search">Buscar producto</label><input id="sale-inventory-search" type="search" placeholder="Nombre, código o categoría" /><label for="category-filter">Categoría</label><select id="category-filter" class="mini-select"><option value="all">Todas</option></select></div><p id="sale-inventory-status" role="status"></p><div class="table-wrap" tabindex="0" aria-label="Inventario para venta"><table class="sale-inventory-table"><thead><tr><th>Código</th><th>Producto</th><th>Precio con IVA</th><th>Existencias</th><th>En cuenta</th><th>Cantidad</th><th>Acción</th></tr></thead><tbody id="product-grid"></tbody></table></div></details>
         </section>
 
         <section id="module-tables" class="module hidden">
@@ -182,47 +215,196 @@
         </section>
 
         <section id="module-inventory" class="module hidden">
+          <p class="panel tax-price-note">Los precios de venta deben ingresarse con IVA agregado. Los precios existentes se consideran finales; el sistema no agrega otro IVA al cobrar. Los costos y entradas de mercancía mantienen su desglose separado.</p>
           <div class="inventory-layout">
             <div class="panel">
               <div class="panel-header">
                 <h3>Inventario</h3>
-                <button id="new-product-btn" class="primary-btn small">Nuevo producto</button>
+                <div class="table-tools">
+                  <button id="inventory-count-btn" class="ghost-btn small" type="button">Conteo físico</button>
+                  <button id="inventory-pdf-btn" class="ghost-btn small" type="button">Descargar PDF</button>
+                  <button id="receive-stock-btn" class="ghost-btn small" type="button">Recibir mercancía</button>
+                  <button id="export-inventory-btn" class="ghost-btn small" type="button">Exportar inventario</button>
+                  <button id="new-product-btn" class="primary-btn small" type="button">Nuevo artículo</button>
+                </div>
               </div>
 
+              <div id="inventory-summary" class="summary-cards"></div>
+              <section class="inventory-category-panel">
+                <div class="panel-header">
+                  <div>
+                    <h4>Categorías</h4>
+                    <small>Solo usuarios con permiso de Inventario pueden crear o eliminar categorías.</small>
+                  </div>
+                </div>
+                <form id="inventory-category-form" class="inventory-category-form">
+                  <input id="inventory-category-name" type="text" maxlength="80" placeholder="Nombre de nueva categoría" required />
+                  <button class="ghost-btn small" type="submit">Crear categoría</button>
+                </form>
+                <div id="inventory-category-list" class="inventory-category-list"></div>
+              </section>
+              <form id="receive-stock-form" class="inventory-receive-form hidden">
+                <div class="panel-header">
+                  <div>
+                    <h4>Entrada de mercancía</h4>
+                    <small>Actualiza existencias y costo promedio; registra el movimiento y la compra contable una sola vez.</small>
+                  </div>
+                  <button id="cancel-receive-stock-btn" class="ghost-btn small" type="button">Cerrar</button>
+                </div>
+                <div class="inventory-receive-grid">
+                  <label for="receive-product">Artículo</label>
+                  <select id="receive-product" required></select>
+                  <label for="receive-quantity">Cantidad recibida</label>
+                  <input id="receive-quantity" type="number" min="0.001" step="0.001" required />
+                  <label for="receive-unit-cost">Costo unitario sin IVA</label>
+                  <input id="receive-unit-cost" type="number" min="0" step="0.01" required />
+                  <label for="receive-tax">IVA total de esta entrada</label>
+                  <input id="receive-tax" type="number" min="0" step="0.01" value="0" required />
+                  <label for="receive-supplier">Proveedor</label>
+                  <input id="receive-supplier" type="text" maxlength="120" required />
+                  <label for="receive-reference">Factura / referencia</label>
+                  <input id="receive-reference" type="text" maxlength="80" required />
+                  <label for="receive-note">Nota</label>
+                  <input id="receive-note" type="text" maxlength="240" />
+                </div>
+                <button class="primary-btn small" type="submit">Registrar entrada</button>
+              </form>
+              <div class="inventory-tools">
+                <input id="inventory-search" type="search" placeholder="Buscar nombre, SKU o código de barras..." aria-label="Buscar en inventario" />
+                <select id="inventory-status-filter" class="mini-select" aria-label="Filtrar inventario">
+                  <option value="all">Todos los artículos</option>
+                  <option value="low">Existencias bajas</option>
+                  <option value="out">Agotados</option>
+                  <option value="services">Servicios</option>
+                </select>
+              </div>
               <div class="table-wrap">
                 <table>
                   <thead>
                     <tr>
                       <th>Producto</th>
                       <th>Categoría</th>
-                      <th>Precio</th>
+                      <th>SKU / Código</th>
+                      <th>Costo</th>
+                      <th>Precio con IVA</th>
                       <th>Stock</th>
+                      <th>Estado</th>
                       <th>Acciones</th>
                     </tr>
                   </thead>
                   <tbody id="inventory-table-body"></tbody>
                 </table>
               </div>
+
+              <div class="panel-header inventory-history-header">
+                <h4>Movimientos recientes</h4>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Artículo</th>
+                      <th>Movimiento</th>
+                      <th>Cantidad</th>
+                      <th>Responsable</th>
+                      <th>Nota</th>
+                    </tr>
+                  </thead>
+                  <tbody id="inventory-movements-body"></tbody>
+                </table>
+              </div>
+
+              <div class="panel-header inventory-history-header">
+                <h4>Recepciones recientes</h4>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Artículo</th>
+                      <th>Proveedor</th>
+                      <th>Cantidad</th>
+                      <th>Costo unitario</th>
+                      <th>Total</th>
+                      <th>Referencia</th>
+                    </tr>
+                  </thead>
+                  <tbody id="inventory-purchases-body"></tbody>
+                </table>
+              </div>
+
+              <div class="panel-header inventory-history-header">
+                <h4>Conteos físicos recientes</h4>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Artículo</th>
+                      <th>Existencia sistema</th>
+                      <th>Conteo físico</th>
+                      <th>Diferencia</th>
+                      <th>Responsable</th>
+                      <th>Nota</th>
+                    </tr>
+                  </thead>
+                  <tbody id="inventory-checks-body"></tbody>
+                </table>
+              </div>
             </div>
 
             <div id="product-form-panel" class="panel hidden">
               <div class="panel-header">
-                <h3 id="form-title">Agregar producto</h3>
+                <h3 id="form-title">Agregar artículo</h3>
               </div>
               <form id="product-form" class="product-form">
                 <input type="hidden" id="product-id" />
 
-                <label>Nombre</label>
-                <input id="product-name" type="text" required />
+                <label for="product-name">Nombre</label>
+                <input id="product-name" type="text" maxlength="120" required />
 
-                <label>Categoría</label>
-                <input id="product-category" type="text" required />
+                <label for="product-type">Tipo de artículo</label>
+                <select id="product-type" class="mini-select">
+                  <option value="producto">Producto con existencias</option>
+                  <option value="servicio">Servicio (sin existencias)</option>
+                </select>
 
-                <label>Precio</label>
-                <input id="product-price" type="number" min="0" step="0.01" required />
+                <label for="product-category">Categoría</label>
+                <input id="product-category" list="inventory-category-options" required /><datalist id="inventory-category-options"></datalist>
 
-                <label>Stock</label>
-                <input id="product-stock" type="number" min="0" step="1" required />
+                <label for="product-code">SKU / Código de barras</label>
+                <input id="product-code" type="text" maxlength="80" autocomplete="off" />
+
+                <label for="product-unit">Unidad de medida</label>
+                <select id="product-unit" class="mini-select">
+                  <option value="unidad">Unidad</option>
+                  <option value="pieza">Pieza</option>
+                  <option value="caja">Caja</option>
+                  <option value="paquete">Paquete</option>
+                  <option value="kg">Kilogramo</option>
+                  <option value="g">Gramo</option>
+                  <option value="litro">Litro</option>
+                  <option value="ml">Mililitro</option>
+                  <option value="metro">Metro</option>
+                  <option value="hora">Hora</option>
+                  <option value="servicio">Servicio</option>
+                </select>
+
+                <label for="product-cost">Costo unitario sin IVA</label>
+                <input id="product-cost" type="number" min="0" step="0.01" value="0" required />
+
+                <label for="product-price">Precio de venta (IVA incluido)</label>
+                <input id="product-price" aria-describedby="product-price-note" type="number" min="0" step="0.01" required />
+
+                <p id="product-price-note" class="tax-price-note">Ingresa el precio final con IVA agregado. El sistema desglosa el impuesto incluido y no lo suma nuevamente al cobrar.</p>
+                <label for="product-stock">Existencias actuales</label>
+                <input id="product-stock" type="number" min="0" step="0.001" value="0" required />
+
+                <label for="product-min-stock">Alerta de existencias bajas</label>
+                <input id="product-min-stock" type="number" min="0" step="0.001" value="5" required />
 
                 <div class="form-actions">
                   <button type="submit" class="primary-btn">Guardar</button>
@@ -258,7 +440,7 @@
                 <input type="hidden" id="user-id" />
 
                 <label>Nombre</label>
-                <input id="user-name" type="text" required />
+                <input id="user-form-name" type="text" required />
 
                 <label>Rol</label>
                 <select id="user-role-input">
@@ -267,10 +449,12 @@
                   <option value="contador">Contador</option>
                   <option value="gerente">Gerente</option>
                   <option value="cocina">Cocina</option>
+                  <option value="mesero">Mesero</option>
                 </select>
 
-                <label>PIN (4 dígitos)</label>
-                <input id="user-pin" type="password" maxlength="4" />
+                <label><input id="user-active" type="checkbox" checked /> Cuenta activa</label>
+                <label>PIN (6 a 12 dígitos)</label>
+                <input id="user-pin" type="password" inputmode="numeric" minlength="6" maxlength="12" />
 
                 <div class="form-actions">
                   <button type="submit" class="primary-btn">Guardar</button>
@@ -288,6 +472,25 @@
             </div>
 
             <form id="company-settings-form" class="settings-form">
+              <div class="settings-grid"><div class="settings-group"><h4>Operación del negocio</h4>
+                <label for="setting-business_type">Tipo de negocio</label><select id="setting-business_type" aria-describedby="business-type-permission" disabled></select><button id="apply-business-profile" type="button" disabled class="ghost-btn small">Usar módulos sugeridos para este tipo</button><p id="business-type-permission">Solo el administrador de este negocio puede cambiar su tipo y configuración.</p>
+                <label for="setting-currency_code">Moneda (se fija al registrar operaciones)</label><select id="setting-currency_code"></select>
+                <label for="setting-number_locale">Formato de números</label><select id="setting-number_locale"></select>
+                <label for="setting-tax_label">Nombre del impuesto</label><input id="setting-tax_label" maxlength="30" value="IVA" required />
+                <label for="setting-default_product_type">Tipo predeterminado de artículo</label><select id="setting-default_product_type"><option value="producto">Producto con existencias</option><option value="servicio">Servicio</option></select>
+                <label for="setting-quote_validity_days">Vigencia de cotizaciones (días)</label><input id="setting-quote_validity_days" type="number" min="1" max="90" value="15" required />
+                <label for="setting-receipt_footer">Mensaje al pie del comprobante</label><textarea id="setting-receipt_footer" maxlength="300"></textarea>
+              </div><div class="settings-group"><h4>Módulos y pagos</h4>
+                <label><input id="setting-tables_enabled" type="checkbox" checked /> Mesas y salones</label>
+                <label><input id="setting-kitchen_enabled" type="checkbox" checked /> Pedidos y cocina</label>
+                <label><input id="setting-quotes_enabled" type="checkbox" checked /> Crear cotizaciones</label>
+                <label><input id="setting-receiving_enabled" type="checkbox" checked /> Recepción de mercancía</label>
+                <p>Las funciones desactivadas también se bloquean en el servidor. Los documentos históricos se conservan.</p>
+                <label><input data-enabled-payment type="checkbox" value="efectivo" checked /> Efectivo</label>
+                <label><input data-enabled-payment type="checkbox" value="tarjeta" checked /> Tarjeta</label>
+                <label><input data-enabled-payment type="checkbox" value="transferencia" checked /> Transferencia</label><label><input data-enabled-payment type="checkbox" value="credito" /> Venta al crédito</label>
+                <p>Los precios de venta deben ingresarse con IVA incluido. El sistema desglosa el impuesto sin aumentar el total. Su tasa se configura en Facturación. Las fechas de reportes y cierres siguen usando UTC.</p>
+              </div></div>
               <div class="settings-grid">
                 <div class="settings-group">
                   <h4>Empresa</h4>
@@ -318,18 +521,19 @@
  
                 <div class="settings-group">
                   <h4>Conexión</h4>
-                  <label>URL base del servidor (PC) <small>ej. http://192.168.1.10:3000</small></label>
+                  <label>URL base del servidor (teléfono, PC o nube) <small>ej. http://192.168.1.10:3000</small></label>
                   <input id="setting-server_base" type="text" placeholder="http://localhost:3000" />
+                  <button id="settings-connection-modes" type="button" class="ghost-btn small">Modo local / servidor externo</button>
                   <button id="test-server-connection-btn" type="button" class="ghost-btn small">Probar conexión</button>
                 </div>
 
                 <div class="settings-group">
                   <h4>PIN Ejecutivo</h4>
                   <p>Para mayor seguridad, activa un PIN que se solicitará para acciones administrativas sensibles.</p>
-                  <label>Nuevo PIN ejecutivo (4-8 dígitos)</label>
-                  <input id="setting-executive_pin" type="password" maxlength="8" autocomplete="off" />
+                  <label>Nuevo PIN ejecutivo (6-12 dígitos)</label>
+                  <input id="setting-executive_pin" type="password" maxlength="12" autocomplete="off" />
                   <label>Confirmar PIN ejecutivo</label>
-                  <input id="setting-executive_pin_confirm" type="password" maxlength="8" autocomplete="off" />
+                  <input id="setting-executive_pin_confirm" type="password" maxlength="12" autocomplete="off" />
                   <div style="margin-top:8px;">
                     <button id="save-executive-pin-btn" type="button" class="primary-btn small">Guardar PIN ejecutivo</button>
                   </div>
@@ -407,6 +611,9 @@
               </div>
             </form>
           </div>
+
+          <div class="panel"><div class="panel-header"><h3>Conexión para enviar copias de documentos</h3><button id="relay-settings-refresh" type="button" class="ghost-btn">Cargar configuración</button></div><p>Solo el administrador configura el destino. Se envían PDF y JSON de ventas, cotizaciones, notas, abonos y cortes. El receptor guarda copias sin modificar ventas, saldos ni existencias.</p><form id="relay-config-form" class="settings-form"><div class="settings-grid"><div class="field-group"><label for="relay-url">Servidor receptor</label><input id="relay-url" type="url" placeholder="https://servidor.example" required /></div><div class="field-group"><label for="relay-business">Identificador del negocio receptor</label><input id="relay-business" value="principal" required /></div><div class="field-group"><label for="relay-token">Clave emitida por el receptor (vacío conserva la actual)</label><input id="relay-token" type="password" autocomplete="off" /></div></div><label><input id="relay-auto" type="checkbox" /> Enviar copias automáticamente cada minuto mientras la app tenga una sesión de caja abierta</label><div class="form-actions"><button class="primary-btn" type="submit">Guardar destino</button><button id="relay-test" class="ghost-btn" type="button">Probar autorización</button><button id="relay-disconnect" class="ghost-btn" type="button">Desconectar</button></div><p id="relay-config-status" role="status"></p></form></div>
+          <div class="panel"><h3>Autorizar dispositivos para recibir documentos aquí</h3><p>En el servidor receptor, crea una clave por teléfono o caja. Comparte esa clave únicamente con el administrador del dispositivo emisor.</p><form id="relay-device-form"><label for="relay-device-name">Nombre del dispositivo</label><input id="relay-device-name" maxlength="100" required /><button class="primary-btn" type="submit">Crear clave de recepción</button></form><label for="relay-created-key">Nueva clave (guárdala antes de salir)</label><input id="relay-created-key" type="password" readonly autocomplete="off" /><button id="relay-show-key" type="button" class="ghost-btn small">Mostrar / ocultar clave</button><p id="relay-key-status" role="status"></p><div id="relay-devices"></div></div>
         </section>
 
         <section id="module-cash" class="module hidden">
@@ -418,6 +625,8 @@
               </div>
 
               <div id="cash-panel-content" class="cash-panel-content"></div>
+              <div class="toolbar-actions"><button id="shift-report-retry" type="button" class="ghost-btn hidden">Recuperar corte pendiente</button><button id="shift-report-x" type="button" class="ghost-btn">Corte X · Consulta</button><button id="shift-report-y" type="button" class="ghost-btn">Corte Y · Arqueo parcial</button></div>
+              <p>X consulta sin cerrar. Y registra un conteo parcial sin cerrar ni reiniciar. Z cierra definitivamente. La diferencia compara únicamente efectivo.</p>
             </div>
 
             <div class="panel">
@@ -426,6 +635,67 @@
               </div>
               <div id="shift-summary" class="summary-cards"></div>
             </div>
+          </div>
+          <div class="panel"><div class="panel-header"><h3>Historial de cortes</h3><button id="shift-reports-refresh" type="button" class="ghost-btn">Actualizar</button></div><p id="shift-reports-status" role="status"></p><div class="table-wrap"><table><thead><tr><th>Corte</th><th>Turno</th><th>Fecha local</th><th>Responsable</th><th>Esperado</th><th>Contado</th><th>Diferencia</th><th>Documento</th></tr></thead><tbody id="shift-reports-body"></tbody></table></div></div>
+        </section>
+
+        <section id="module-documents" class="module hidden">
+          <div class="panel"><div class="panel-header"><h3>Copias entre dispositivos</h3><button id="relay-refresh" type="button" class="ghost-btn">Actualizar</button><button id="relay-send" type="button" class="primary-btn" disabled>Preparar y enviar documentos</button></div><p id="relay-status" role="status">Configura un destino para enviar copias. No se fusionan inventarios ni cuentas.</p><h4>Últimos 200 envíos del destino actual</h4><div class="table-wrap"><table><thead><tr><th>Documento</th><th>Estado</th><th>Detalle</th></tr></thead><tbody id="relay-outbox"></tbody></table></div><h4>Últimas 200 copias recibidas</h4><p>Estas copias no cuentan como ventas de este servidor. Abre el PDF para imprimir o compartir por WhatsApp. El correo se solicita por documento desde el receptor.</p><div class="table-wrap"><table><thead><tr><th>Documento</th><th>Origen</th><th>Correo</th><th>Acciones</th></tr></thead><tbody id="relay-inbox"></tbody></table></div></div>
+
+          <div class="panel"><div class="panel-header"><h3>Cuentas por cobrar</h3><button id="credit-refresh" type="button" class="ghost-btn">Actualizar saldos</button></div><p>Ventas al crédito y abonos. Los saldos se calculan con las notas y pagos registrados.</p><input id="credit-search" type="search" placeholder="Buscar cliente o número de venta" aria-label="Buscar cuenta por cobrar" /><p id="credit-accounts-status" role="status"></p><div class="table-wrap"><table><thead><tr><th>Venta</th><th>Cliente</th><th>Vence (UTC)</th><th>Importe</th><th>Acreditado</th><th>Abonado</th><th>Saldo</th><th>Estado</th><th>Acción</th></tr></thead><tbody id="credit-accounts-body"></tbody></table></div></div>
+          <div class="panel billing-sales-history">
+            <div class="panel-header">
+              <div>
+                <h3>Comprobantes internos</h3>
+                <small>Consulta hasta 1,000 ventas y 1,000 cotizaciones. PDF y JSON internos, sin autorización fiscal.</small>
+              </div>
+              <input id="billing-invoices-search" type="search" autocomplete="off" placeholder="Buscar por documento, cliente o identificación" aria-label="Buscar documentos de venta" />
+            </div>
+            <div id="billing-server-status" class="billing-server-status" role="status"></div>
+            <div class="billing-history-filters" aria-label="Filtros de documentos">
+              <div class="field-group">
+                <label for="billing-invoices-from">Desde</label>
+                <input id="billing-invoices-from" type="date" />
+              </div>
+              <div class="field-group">
+                <label for="billing-invoices-to">Hasta</label>
+                <input id="billing-invoices-to" type="date" />
+              </div>
+              <div class="field-group">
+                <label for="billing-invoices-type">Tipo de documento</label>
+                <select id="billing-invoices-type" class="mini-select full-width">
+                  <option value="">Todos los tipos</option>
+                  <option value="consumidor_final">Consumidor final (01)</option>
+                  <option value="credito_fiscal">Crédito fiscal (03)</option>
+                </select>
+              </div>
+              <button id="billing-invoices-clear-filters" class="ghost-btn small" type="button">Limpiar filtros</button>
+            </div>
+            <div id="billing-invoices-summary" class="billing-invoices-summary" aria-live="polite"></div>
+            <div class="panel-header billing-history-header">
+              <h4>Ventas y comprobantes recientes</h4>
+              <button id="billing-refresh-invoices-btn" class="ghost-btn small" type="button">Actualizar</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Documento</th><th>Tipo</th><th>Fecha</th><th>Cliente</th><th>Estado</th><th>Total</th><th>Acciones</th></tr></thead>
+                <tbody id="billing-invoices-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="panel documents-quotes-panel">
+            <div class="panel-header">
+              <div>
+                <h3>Cotizaciones</h3>
+                <small>Consulta, imprime, descarga o carga una cotización para continuar la venta.</small>
+              </div>
+              <div class="documents-quote-tools">
+                <input id="documents-quote-search" type="search" autocomplete="off" placeholder="Buscar cotización o cliente" aria-label="Buscar cotizaciones" />
+                <button id="quotes-module-create-btn" class="primary-btn small" type="button">Crear desde ticket</button>
+              </div>
+            </div>
+            <div id="documents-quotes-content"></div>
           </div>
         </section>
 
@@ -440,7 +710,26 @@
               </div>
             </div>
 
-            <div id="report-cards" class="summary-cards"></div>
+            <div class="report-filters">
+              <label for="sales-report-start">Desde</label>
+              <input id="sales-report-start" type="date" />
+              <label for="sales-report-end">Hasta</label>
+              <input id="sales-report-end" type="date" />
+              <label for="sales-report-payment">Pago</label>
+              <select id="sales-report-payment" class="mini-select">
+                <option value="all">Todos</option>
+                <option value="efectivo">Efectivo</option>
+                <option value="tarjeta">Tarjeta</option>
+                <option value="transferencia">Transferencia</option>
+              </select>
+              <label for="sales-report-employee">Cajero</label>
+              <select id="sales-report-employee" class="mini-select">
+                <option value="all">Todos</option>
+              </select>
+              <button id="apply-sales-report-btn" class="primary-btn small" type="button">Aplicar filtros</button>
+              <button id="clear-sales-report-btn" class="ghost-btn small" type="button">Limpiar</button>
+            </div>
+            <p>Ventas emitidas (incluye crédito). Las notas se descuentan en el resumen mensual y libro de IVA; los abonos se consultan en Documentos.</p><div id="report-cards" class="summary-cards"></div>
 
             <div class="table-wrap">
               <table>
@@ -465,14 +754,14 @@
      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="billing-modal-title">
        <div class="modal-header">
          <div>
-           <span class="eyebrow">Factura electrónica</span>
-           <h3 id="billing-modal-title">Datos de la factura</h3>
+           <span class="eyebrow">Comprobante interno</span>
+           <h3 id="billing-modal-title">Confirmar cobro</h3>
          </div>
          <button type="button" id="close-billing-modal-btn" class="icon-close" aria-label="Cerrar">×</button>
        </div>
 
        <div class="modal-body">
-         <div class="invoice-summary-box">
+         <div class="invoice-summary-box billing-only">
            <div>
              <small>Cliente</small>
              <strong id="modal-customer-summary">Consumidor final</strong>
@@ -483,100 +772,74 @@
            </div>
          </div>
 
-         <div class="field-grid two-columns">
-           <div class="field-group">
-             <label for="billing-payment-method">Método de pago</label>
-             <select id="billing-payment-method" class="mini-select full-width">
-               <option value="efectivo">Efectivo</option>
-               <option value="tarjeta">Tarjeta</option>
-               <option value="transferencia">Transferencia</option>
-             </select>
-           </div>
-
-           <div class="field-group">
-             <label for="billing-cash-received">Monto recibido</label>
-             <input id="billing-cash-received" type="number" step="0.01" min="0" placeholder="0.00" />
-           </div>
-         </div>
-
-         <div class="field-grid two-columns">
-           <div class="field-group">
-             <label for="billing-customer-name">Nombre / razón social</label>
-             <input id="billing-customer-name" type="text" placeholder="Nombre del cliente" />
-           </div>
-
-           <div class="field-group">
-             <label for="billing-customer-type">Tipo de receptor</label>
-             <select id="billing-customer-type" class="mini-select full-width">
-               <option value="consumidor_final">Consumidor final</option>
-               <option value="credito_fiscal">Crédito fiscal</option>
-             </select>
-           </div>
-         </div>
-
-         <div class="field-grid two-columns">
-           <div class="field-group">
-             <label for="billing-customer-nit">NIT / DUI / documento</label>
-             <input id="billing-customer-nit" type="text" placeholder="CF, NIT o DUI" />
-           </div>
-
-           <div class="field-group">
-             <label for="billing-customer-giro">Giro o actividad</label>
-             <input id="billing-customer-giro" type="text" placeholder="Actividad comercial" />
-           </div>
-         </div>
-
-         <div class="field-group">
-           <label for="billing-customer-address">Dirección</label>
-           <input id="billing-customer-address" type="text" placeholder="Dirección fiscal o domicilio" />
-         </div>
-
-         <div class="field-grid two-columns">
-           <div class="field-group">
-             <label for="billing-customer-department">Departamento</label>
-             <input id="billing-customer-department" type="text" placeholder="Ej. San Salvador" />
-           </div>
-
-           <div class="field-group">
-             <label for="billing-customer-municipality">Municipio</label>
-             <input id="billing-customer-municipality" type="text" placeholder="Ej. San Salvador" />
-           </div>
-         </div>
-
-         <div class="field-grid two-columns">
-           <div class="field-group">
-             <label for="billing-customer-phone">Teléfono</label>
-             <input id="billing-customer-phone" type="tel" placeholder="(503) 0000-0000" />
-           </div>
-
-           <div class="field-group">
-             <label for="billing-customer-email">Correo electrónico</label>
-             <input id="billing-customer-email" type="email" placeholder="cliente@correo.com" />
-           </div>
-         </div>
-
-         <div class="field-group">
-           <label for="billing-customer-notes">Observaciones opcionales</label>
-           <textarea id="billing-customer-notes" rows="3" placeholder="Notas internas o referencia de la venta"></textarea>
-         </div>
-
-         <div class="field-group">
-           <label for="customer-select">Cliente guardado</label>
-           <select id="customer-select" class="mini-select full-width">
-             <option value="">Cliente general / consumidor final</option>
-           </select>
-         </div>
-
          <div class="modal-actions">
-           <button id="save-customer-btn" class="ghost-btn small" type="button">Guardar cliente</button>
            <button id="confirm-billing-btn" class="primary-btn small" type="button">Confirmar cobro</button>
          </div>
        </div>
      </div>
    </div>
 
+
+    <dialog id="credit-operation-dialog" class="floating-dialog" aria-labelledby="credit-operation-title">
+      <header class="floating-header"><h3 id="credit-operation-title">Documento de crédito</h3><button type="button" class="icon-close" data-close-floating aria-label="Cerrar">×</button></header>
+      <div class="floating-body"><p id="credit-operation-sale"></p><p id="credit-operation-help"></p><form id="credit-operation-form" class="count-form">
+        <label id="credit-operation-amount-label" for="credit-operation-amount">Importe con IVA incluido</label><input id="credit-operation-amount" type="number" min="0.01" step="0.01" required />
+        <label for="credit-operation-reason">Motivo / referencia</label><textarea id="credit-operation-reason" maxlength="500"></textarea>
+        <label for="credit-operation-method">Medio de pago / devolución si corresponde</label><select id="credit-operation-method"><option value="efectivo">Efectivo</option><option value="tarjeta">Tarjeta</option><option value="transferencia">Transferencia</option></select>
+        <p id="credit-operation-preview" role="status"></p><div class="floating-actions"><button type="submit" class="primary-btn">Confirmar y registrar</button><button type="button" class="ghost-btn" data-close-floating>Cerrar</button></div>
+      </form><p id="credit-operation-status" role="status"></p><div id="credit-operation-result" class="sale-document-actions"></div></div>
+    </dialog>
+    <dialog id="document-email-dialog" class="floating-dialog" aria-labelledby="document-email-title">
+      <header class="floating-header"><h3 id="document-email-title">Enviar documento por correo</h3><button type="button" class="icon-close" data-close-floating aria-label="Cerrar correo">×</button></header>
+      <div class="floating-body"><p id="document-email-description"></p><form id="document-email-form">
+        <div class="field-group"><label for="document-email-recipient">Correo del destinatario</label><input id="document-email-recipient" type="email" inputmode="email" autocomplete="email" maxlength="254" required aria-describedby="document-email-status" /></div>
+        <p id="document-email-status" role="status" aria-live="polite"></p>
+        <div class="floating-actions"><button id="document-email-submit" type="submit" class="primary-btn">Enviar PDF y JSON</button><button type="button" class="ghost-btn" data-close-floating>Cerrar</button></div>
+      </form></div>
+    </dialog>
+    <dialog id="document-share-dialog" class="floating-dialog" aria-labelledby="document-share-title">
+      <header class="floating-header"><h3 id="document-share-title">Compartir por WhatsApp</h3><button type="button" class="icon-close" data-close-floating aria-label="Cerrar">×</button></header>
+      <div class="floating-body"><p id="document-share-status" role="status"></p><p>Descarga el PDF y adjúntalo al chat. Si tu dispositivo admite compartir archivos, puedes elegir WhatsApp en el menú de compartir.</p><label for="document-share-phone">Teléfono con código de país (ejemplo: 503XXXXXXXX)</label><input id="document-share-phone" type="tel" /><div class="floating-actions"><button id="document-share-file" type="button" class="primary-btn" disabled>Compartir PDF</button><button id="document-share-download" type="button" class="ghost-btn" disabled>Descargar PDF</button><button id="document-share-chat" type="button" class="ghost-btn" disabled>Abrir WhatsApp</button></div></div>
+    </dialog>
+    <dialog id="inventory-count-dialog" class="floating-dialog" aria-labelledby="count-dialog-title">
+      <header class="floating-header"><h3 id="count-dialog-title">Conteo físico de inventario</h3><button type="button" class="icon-close" data-close-floating aria-label="Cerrar conteo">×</button></header>
+      <div class="floating-body"><form id="inventory-check-form" class="count-form">
+        <label for="inventory-check-product">Producto</label><select id="inventory-check-product" required></select>
+        <label for="inventory-check-date">Fecha</label><input id="inventory-check-date" type="date" required />
+        <label for="inventory-check-expected">Existencias al iniciar el conteo</label><input id="inventory-check-expected" type="number" readonly />
+        <label for="inventory-check-counted">Cantidad contada</label><input id="inventory-check-counted" type="number" step="0.001" min="0" required />
+        <label for="inventory-check-notes">Motivo / observaciones</label><textarea id="inventory-check-notes"></textarea>
+        <label class="checkbox-label"><input id="inventory-check-adjust" type="checkbox" /> Ajustar existencias al conteo (requiere motivo)</label>
+        <p>Si las existencias cambian mientras cuentas, el servidor rechazará el ajuste. Reabre el conteo para revisar los datos actuales.</p>
+        <div class="floating-actions"><button type="submit" class="primary-btn">Guardar conteo</button><button type="button" class="ghost-btn" data-close-floating>Cerrar</button></div>
+      </form></div>
+    </dialog>
+    <dialog id="customer-directory-dialog" class="floating-dialog floating-wide" aria-labelledby="customer-directory-title">
+      <header class="floating-header"><h3 id="customer-directory-title">Clientes registrados</h3><button type="button" class="icon-close" data-close-floating aria-label="Cerrar clientes registrados">×</button></header>
+      <div class="floating-body"><div id="customer-directory-search"></div><p id="customer-directory-status" role="status"></p><div class="table-wrap" tabindex="0" aria-label="Clientes registrados"><table><thead><tr><th>Cliente</th><th>Documento</th><th>Teléfono</th><th>Correo</th><th>Acciones</th></tr></thead><tbody id="customer-directory-body"></tbody></table></div><div class="floating-actions"><button id="directory-new-customer" type="button" class="primary-btn">Registrar cliente</button><button id="directory-general-customer" type="button" class="ghost-btn">Usar cliente general</button></div></div>
+    </dialog>
+    <dialog id="shift-open-dialog" class="floating-dialog" aria-labelledby="shift-open-title">
+      <header class="floating-header"><h3 id="shift-open-title">Abrir turno</h3><button type="button" class="icon-close" data-close-floating aria-label="Cerrar apertura">×</button></header>
+      <div class="floating-body"><form id="shift-open-form">
+        <p>Registra el efectivo físico con el que comienza la caja. No incluyas tarjeta ni transferencia.</p>
+        <div class="field-group"><label for="shift-opening-cash">Efectivo inicial de caja</label><input id="shift-opening-cash" type="number" inputmode="decimal" min="0" max="1000000" step="0.01" value="0" required aria-describedby="shift-open-status" /></div>
+        <p id="shift-open-status" role="status" aria-live="polite"></p>
+        <div class="floating-actions"><button id="shift-open-submit" type="submit" class="primary-btn">Confirmar apertura</button><button type="button" class="ghost-btn" data-close-floating>Cancelar</button></div>
+      </form></div>
+    </dialog>
+        <dialog id="shift-report-dialog" class="floating-dialog" aria-labelledby="shift-report-title"><div class="panel"><div class="panel-header"><h3 id="shift-report-title">Corte de caja</h3><button type="button" class="ghost-btn" data-close-floating>Cerrar</button></div><p id="shift-report-description"></p><form id="shift-report-form"><div id="shift-count-field" class="field-group"><label for="shift-report-count">Efectivo contado físicamente (sin tarjeta ni transferencia)</label><input id="shift-report-count" type="number" min="0" max="1000000" step="0.01" required /></div><div class="field-group"><label for="shift-report-note">Observación</label><textarea id="shift-report-note" maxlength="500"></textarea></div><div class="field-group"><label for="shift-report-output">Al guardar</label><select id="shift-report-output"><option value="pdf">Generar PDF</option><option value="print">Imprimir (en móvil: compartir PDF)</option><option value="save">Solo guardar en historial</option></select></div><p id="shift-report-status" role="status"></p><button id="shift-report-submit" type="submit" class="primary-btn">Guardar corte</button></form></div></dialog>
+    <dialog id="connection-dialog" class="floating-dialog" aria-labelledby="connection-title"><header class="floating-header"><h3 id="connection-title">Modo de conexión</h3><button type="button" class="icon-close" data-close-floating aria-label="Cerrar">×</button></header><div class="floating-body"><p>Elige dónde se guardan y procesan las ventas. Cambiar de servidor no copia ni fusiona datos.</p><div class="floating-actions"><button id="connection-phone" type="button" class="ghost-btn">Servidor en este teléfono / dispositivo</button><button id="connection-remote" type="button" class="ghost-btn">Servidor externo</button></div><form id="connection-form"><label for="connection-url">Dirección del servidor</label><input id="connection-url" type="url" required /><p id="connection-status" role="status"></p><div class="floating-actions"><button id="connection-test" type="button" class="ghost-btn">Probar conexión</button><button id="connection-save" type="submit" class="primary-btn">Conectar</button></div></form></div></dialog>
     <script src="app_utils.js"></script>
+    <script src="pos-math.js"></script>
+    <script src="native-platform.js"></script>
+    <script src="credit-ui.js"></script>
+    <script src="enhancements.js"></script>
+    <script src="business-ui.js"></script>
+    <script src="connection-ui.js"></script>
+    <script src="relay-ui.js"></script>
     <script src="app.js"></script>
     <script src="app_exec_pin.js"></script>
+
+
   </body>
 </html>
