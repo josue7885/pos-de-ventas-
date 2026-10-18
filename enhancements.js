@@ -244,6 +244,46 @@ async function downloadFromApi(path,filename){
  if(window.POSNative?.active)return window.POSNative.shareFile(blob,filename);
  const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=filename;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
+let documentEmailTarget=null,documentEmailBusy=false;
+function documentEmailContext(){return JSON.stringify([currentEmployee?.id,getBusinessId(),businessGeneration,getSavedApiBase()]);}
+function openDocumentEmail(options){
+ if(documentEmailBusy)return alert('Hay un envío de correo en curso. Espera su resultado antes de enviar otro.');
+ if(!currentEmployee)return;
+ documentEmailTarget={...options,context:documentEmailContext(),finished:false};
+ document.getElementById('document-email-form').reset();
+ document.getElementById('document-email-description').textContent=options.label;
+ const input=document.getElementById('document-email-recipient');input.value=options.recipient||'';input.readOnly=false;
+ document.getElementById('document-email-status').textContent='Se adjuntarán el PDF y el JSON de este documento.';
+ document.getElementById('document-email-submit').disabled=false;
+ openFloating('document-email-dialog','document-email-recipient');
+}
+async function submitDocumentEmail(event){
+ event.preventDefault();const target=documentEmailTarget;
+ if(documentEmailBusy||!target||target.finished)return;
+ if(!currentEmployee||target.context!==documentEmailContext()){closeFloating('document-email-dialog');documentEmailTarget=null;return;}
+ const form=document.getElementById('document-email-form'),input=document.getElementById('document-email-recipient'),button=document.getElementById('document-email-submit'),status=document.getElementById('document-email-status');
+ const recipient=input.value.trim();input.value=recipient;
+ if(!form.checkValidity()||recipient.length>254||!/^[^\s@<>;,]+@[^\s@<>;,]+\.[^\s@<>;,]+$/.test(recipient)){
+  status.textContent='Escribe un único correo válido, por ejemplo cliente@correo.com.';input.focus();return;
+ }
+ documentEmailBusy=true;button.disabled=true;input.readOnly=true;status.textContent='Enviando PDF y JSON…';
+ const isCurrent=()=>documentEmailTarget===target&&target.context===documentEmailContext();
+ try{
+  const result=await apiRequest(target.path,{method:'POST',body:JSON.stringify({[target.recipientField]:recipient})});
+  target.finished=true;if(!isCurrent())return;
+  status.textContent=(result.message||'Correo aceptado por el servidor SMTP.')+' Revisa la bandeja de entrada y spam del destinatario.';
+  if(!document.getElementById('document-email-dialog').open)alert(status.textContent);
+ }catch(error){
+  if(!isCurrent())return;
+  // A failed connection can happen after SMTP accepted the message. Never retry automatically.
+  target.finished=!error.status||error.status>=500||error.status===409;
+  status.textContent=error.message+(target.finished?' No se repetirá el envío automáticamente. Verifica la bandeja del destinatario antes de solicitar otro envío.':'');
+  if(!document.getElementById('document-email-dialog').open)alert(status.textContent);
+ }finally{
+  documentEmailBusy=false;
+  if(isCurrent()){button.disabled=target.finished;input.readOnly=target.finished;if(target.refreshRelay)await loadDocumentRelay();}
+ }
+}
 async function documentAction(event){
  const button=event.target.closest('[data-document-action]');if(!button)return;
  const d=[...documentDirectory,lastConfirmedDocument,lastCreditDocument].find(x=>x && x.kind===button.dataset.kind && x.id===Number(button.dataset.id));if(!d || button.disabled)return;
@@ -252,10 +292,7 @@ async function documentAction(event){
   const action=button.dataset.documentAction;
   if(action==='pdf'||action==='json')await downloadFromApi(`/documents/${d.kind}/${d.id}/${action}`,`${documentFileBase(d)}.${action}`);
   if(action==='ticket')await printDocument(d);
-  if(action==='email'){
-   const email=prompt('Correo del destinatario:',d.customer_email||'');if(!email)return;
-   await apiRequest(`/documents/${d.kind}/${d.id}/email`,{method:'POST',body:JSON.stringify({customerEmail:email})});alert('Correo aceptado por el servidor. Revisa la bandeja de entrada y spam del destinatario.');
-  }
+  if(action==='email')openDocumentEmail({label:`${creditDocumentLabel(d)} ${d.number||d.id}`,recipient:d.customer_email,path:`/documents/${d.kind}/${d.id}/email`,recipientField:'customerEmail'});
   if(action==='load')await loadQuoteToCart(d);
   if(action==='creditnote'||action==='creditpayment')await openCreditOperation(d,action);
   if(action==='whatsapp')await prepareDocumentShare(d);
@@ -348,6 +385,7 @@ function initEnhancements(){
  document.getElementById('product-grid').addEventListener('keydown',event=>{if(event.key==='Enter'&&event.target.matches('[data-stock-quantity]')){event.preventDefault();addInventoryToSale(Number(event.target.dataset.stockQuantity));}});
 
  const bind=(id,event,handler)=>document.getElementById(id)?.addEventListener(event,handler);
+ bind('document-email-form','submit',submitDocumentEmail);
  bind('toggle-login-pin','click',()=>{const input=document.getElementById('pin-input'),button=document.getElementById('toggle-login-pin');const show=input.type==='password';input.type=show?'text':'password';button.textContent=show?'Ocultar':'Mostrar';button.setAttribute('aria-pressed',String(show));button.setAttribute('aria-label',show?'Ocultar PIN':'Mostrar PIN');});
  bind('system-product-search','input',renderStockSearch);
  bind('system-product-search','keydown',event=>{if(event.key==='Escape'){event.target.value='';renderStockSearch();}});

@@ -1060,11 +1060,42 @@ async function handleProductSubmit(event) {
     closeProductForm();await syncFromServer();
   } catch(error) { alert(error.message);await syncFromServer().catch(()=>{}); }
 }
-async function openShift() {
+let shiftOpenBusy=false;
+function shiftOpenContext(){return JSON.stringify([currentEmployee?.id,getBusinessId(),getSavedApiBase()]);}
+function openShift() {
+  if(shiftOpenBusy)return;
+  if(!['admin','gerente','cajero'].includes(currentEmployee?.role))return alert('Solo administrador, gerente o cajero puede abrir un turno.');
   if(pendingShiftReport())return openShiftReport('Z');
-  const raw=prompt('Efectivo inicial de caja:','0');if(raw===null)return;
-  try { await apiRequest('/shifts/open',{method:'POST',body:JSON.stringify({openingCash:raw})});await syncFromServer(); }
-  catch(error) { alert(error.message); }
+  if(state.shift.isOpen)return alert('Ya hay una caja abierta. Actualiza el turno antes de continuar.');
+  const form=document.getElementById('shift-open-form');form.reset();form.dataset.context=shiftOpenContext();
+  document.getElementById('shift-open-status').textContent='';
+  openFloating('shift-open-dialog','shift-opening-cash');
+}
+async function submitShiftOpen(event) {
+  event.preventDefault();if(shiftOpenBusy)return;
+  const form=document.getElementById('shift-open-form'),status=document.getElementById('shift-open-status'),button=document.getElementById('shift-open-submit');
+  const context=form.dataset.context;
+  if(!currentEmployee||context!==shiftOpenContext()){closeFloating('shift-open-dialog');return;}
+  const raw=document.getElementById('shift-opening-cash').value.trim();
+  if(!raw||!Number.isFinite(Number(raw))||Number(raw)<0||Number(raw)>1000000||!form.checkValidity()){
+    status.textContent='Ingresa un efectivo inicial entre 0 y 1,000,000, con un máximo de dos decimales.';return;
+  }
+  shiftOpenBusy=true;button.disabled=true;status.textContent='Abriendo turno…';
+  let saved=false;
+  try {
+    await apiRequest('/shifts/open',{method:'POST',body:JSON.stringify({openingCash:raw})});saved=true;
+    if(context!==shiftOpenContext())return;
+    await syncFromServer();closeFloating('shift-open-dialog');
+  }catch(error){
+    if(context!==shiftOpenContext())return;
+    // Recover the authoritative shift after a lost response or another register opening it.
+    await syncFromServer().catch(()=>{});
+    if(context!==shiftOpenContext())return;
+    if(state.shift.isOpen){closeFloating('shift-open-dialog');return;}
+    const message=saved?'El turno se guardó, pero no se pudo actualizar la pantalla. Recarga antes de continuar.':error.message+' Actualiza el estado de la caja antes de volver a intentar.';
+    status.textContent=message;
+    if(!document.getElementById('shift-open-dialog').open)alert(message);
+  }finally{shiftOpenBusy=false;button.disabled=false;}
 }
 let shiftReportBusy=false,shiftReportHistorySequence=0;
 function shiftReportPendingKey(){const old=`pos_shift_report_${getBusinessId()}_${currentEmployee?.id}`,key=`${old}_${encodeURIComponent(getSavedApiBase())}`;if(sessionStorage.getItem(old)&&!sessionStorage.getItem(key)){sessionStorage.setItem(key,sessionStorage.getItem(old));sessionStorage.removeItem(old);}return key;}
@@ -1122,6 +1153,7 @@ async function loadShiftReports(){
  }catch(error){if(seq===shiftReportHistorySequence&&currentEmployee?.id===user)status.textContent=error.message;}
 }
 function initShiftReports(){
+ document.getElementById('shift-open-form').addEventListener('submit',submitShiftOpen);
  document.getElementById('shift-report-form').addEventListener('submit',submitShiftReport);
  document.getElementById('shift-report-x').addEventListener('click',()=>openShiftReport('X'));
  document.getElementById('shift-report-retry').addEventListener('click',()=>openShiftReport('Z'));

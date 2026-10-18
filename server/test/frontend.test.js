@@ -2,13 +2,13 @@ const {JSDOM,VirtualConsole}=require('jsdom');
 const fs=require('fs'),os=require('os'),path=require('path'),{spawn}=require('child_process'),assert=require('assert/strict');
 require('node:test').test('frontend DOM with real HTTP: checkout, lost response, sync and users', async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pos-domtest-'));let server,first,second;
- const errors=[],alerts=[];let loseNext=false,loseOperation='';
+ const errors=[],alerts=[];let loseNext=false,loseOperation='',openRequests=0;
  try{
  server=spawn(process.execPath,['server/server.js'],{cwd:path.resolve(__dirname,'../..'),env:{...process.env,POS_DATA_DIR:dir,POS_ADMIN_PIN:'729184',PORT:'0'}});let out='';server.stderr.on('data',()=>{});
  const base=await new Promise((resolve,reject)=>{server.stdout.on('data',d=>{out+=d;const m=out.match(/listening on port (\d+)/);if(m)resolve('http://127.0.0.1:'+m[1]);});server.on('exit',()=>reject(Error(out)));});
  const token=await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:1,pin:'729184'})}).then(r=>r.json()).then(d=>d.token);
  await fetch(base+'/api/products',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({name:'Café',category:'Bebidas',price:4.5,stock:5})});
- async function open(){const vc=new VirtualConsole();vc.on('jsdomError',e=>errors.push(e.message));const dom=await JSDOM.fromURL(base,{resources:'usable',runScripts:'dangerously',virtualConsole:vc,beforeParse(w){w.fetch=async(url,options)=>{const result=await fetch(url,options);if(loseOperation && new URL(url).pathname===loseOperation){loseOperation='';await result.text();throw new Error('Lost operation response');}if(loseNext && new URL(url).pathname==='/api/sales'){loseNext=false;await result.text();throw new Error('Lost response after commit');}return result;};w.AbortController=AbortController;w.AbortSignal=AbortSignal;w.alert=m=>alerts.push(m);w.prompt=()=> '0';w.confirm=()=>true;w.open=()=>null;}});await new Promise(resolve=>dom.window.addEventListener('load',resolve));await new Promise(resolve=>setTimeout(resolve,100));return dom;}
+ async function open(){const vc=new VirtualConsole();vc.on('jsdomError',e=>errors.push(e.message));const dom=await JSDOM.fromURL(base,{resources:'usable',runScripts:'dangerously',virtualConsole:vc,beforeParse(w){w.fetch=async(url,options)=>{if(new URL(url).pathname==='/api/shifts/open')openRequests++;const result=await fetch(url,options);if(loseOperation && new URL(url).pathname===loseOperation){loseOperation='';await result.text();throw new Error('Lost operation response');}if(loseNext && new URL(url).pathname==='/api/sales'){loseNext=false;await result.text();throw new Error('Lost response after commit');}return result;};w.AbortController=AbortController;w.AbortSignal=AbortSignal;w.alert=m=>alerts.push(m);w.prompt=()=> '0';w.confirm=()=>true;w.open=()=>null;}});await new Promise(resolve=>dom.window.addEventListener('load',resolve));await new Promise(resolve=>setTimeout(resolve,100));return dom;}
  first=await open();let w=first.window;assert.deepEqual(errors,[]);
  w.document.getElementById('pin-input').value='000000';await w.loginUser();assert.equal(w.eval('currentEmployee'),null);
  w.document.getElementById('pin-input').value='729184';await w.loginUser();assert.equal(w.eval('currentEmployee.role'),'admin',alerts.join('\n'));
@@ -44,7 +44,23 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  w.document.getElementById('stock-qty-1').value='5';w.document.getElementById('stock-add-1').click();assert.equal(w.eval('cart[0].qty'),5);assert.equal(w.document.getElementById('stock-add-1').disabled,true);
  w.selectWorkspace('home');assert.equal(w.eval('cart[0].qty'),5);w.document.querySelector('[data-home-action=sale]').click();w.clearCart();
  w.document.getElementById('stock-qty-1').value='6';w.addInventoryToSale(1);assert.equal(w.eval('cart.length'),0);w.document.getElementById('stock-qty-1').value='1';
- await w.openShift();assert.equal(w.eval('state.shift.isOpen'),true);
+ // Electron deliberately rejects prompt(); opening a shift must use the in-page form.
+ w.prompt=()=>{throw Error('prompt() is not supported.');};
+ w.openShift();assert.equal(w.document.getElementById('shift-open-dialog').open,true);
+ assert.equal(w.document.activeElement.id,'shift-opening-cash');
+ w.document.querySelector('#shift-open-dialog [data-close-floating]').click();
+ assert.equal(w.document.getElementById('shift-open-dialog').open,false);assert.equal(openRequests,0);
+ w.openShift();
+ for(const value of ['', '-1', '1.234', '1000001']){
+  w.document.getElementById('shift-opening-cash').value=value;
+  await w.submitShiftOpen({preventDefault(){}});assert.equal(openRequests,0);
+  assert.match(w.document.getElementById('shift-open-status').textContent,/Ingresa/);
+ }
+ w.document.getElementById('shift-opening-cash').value='0';loseOperation='/api/shifts/open';
+ await Promise.all([w.submitShiftOpen({preventDefault(){}}),w.submitShiftOpen({preventDefault(){}})]);
+ assert.equal(openRequests,1);assert.equal(w.eval('state.shift.isOpen'),true);
+ assert.equal(w.eval('state.shift.openingCash'),0);assert.equal(w.document.getElementById('shift-open-dialog').open,false);
+ assert.equal(w.document.getElementById('shift-open-submit').disabled,false);
  const autoPrintDom=new JSDOM('<!DOCTYPE html><html></html>');let autoPrinted=0;autoPrintDom.window.print=()=>autoPrinted++;autoPrintDom.window.focus=()=>{};w.open=()=>autoPrintDom.window;
  w.addToCart(1);w.openBillingModal('payment');assert.equal(w.document.getElementById('billing-cash-received').value,'4.50');await w.processSale();assert.equal(w.eval('state.sales.length'),1);assert.equal(w.eval('state.products[0].stock'),4);
  w.selectWorkspace('home');assert.equal(w.document.getElementById('home-sale-count').textContent,'1');assert.equal(w.document.getElementById('home-period-total').textContent,w.eval('currency(4.5)'));assert.match(w.document.getElementById('home-top-products').textContent,/Café/);w.setActiveModule('pos');
@@ -122,7 +138,7 @@ require('node:test').test('frontend DOM with real HTTP: checkout, lost response,
  w.openShiftReport('Y');w.document.getElementById('shift-report-count').value='0';w.document.getElementById('shift-report-output').value='save';loseOperation='/api/shifts/reports';await w.submitShiftReport({preventDefault(){}});assert.ok(w.pendingShiftReport());await w.submitShiftReport({preventDefault(){}});assert.equal(w.pendingShiftReport(),null);assert.equal(w.eval('state.shift.isOpen'),true);assert.match(w.document.getElementById('shift-reports-body').textContent,/Faltante/);
  await w.closeShift();w.document.getElementById('shift-report-count').value='0';w.document.getElementById('shift-report-output').value='pdf';await w.submitShiftReport({preventDefault(){}});assert.equal(w.eval('state.shift.isOpen'),false);assert.match(downloads.at(-1).filename,/^corte-Z-.*\.pdf$/);
  const cuts=await w.apiRequest('/shifts/reports'),cut=cuts.reports.find(r=>r.type==='Z');const cutDom=new JSDOM('<!DOCTYPE html><html></html>');let cutPrinted=0;cutDom.window.print=()=>cutPrinted++;cutDom.window.focus=()=>{};w.open=()=>cutDom.window;await w.printShiftReport(cut.id);assert.equal(cutPrinted,1);assert.match(cutDom.window.document.body.textContent,/Corte Z/);cutDom.window.close();w.open=()=>null;
- await w.openShift();await v.syncFromServer();w.renderCashPanel();assert.equal(w.document.querySelector('#shift-summary strong').textContent,'0');
+ w.openShift();w.document.getElementById('shift-opening-cash').value='25.50';await w.submitShiftOpen({preventDefault(){}});assert.equal(w.eval('state.shift.openingCash'),25.5);await v.syncFromServer();w.renderCashPanel();assert.equal(w.document.querySelector('#shift-summary strong').textContent,'0');
  // A count started on one shift must never close a later shift opened by another register.
  w.openShiftReport('Y');const countedShift=Number(w.document.getElementById('shift-report-form').dataset.shiftId);w.document.getElementById('shift-report-count').value='0';w.document.getElementById('shift-report-output').value='save';await v.apiRequest('/shifts/close',{method:'POST',body:JSON.stringify({shiftId:countedShift,observedCash:0})});await v.apiRequest('/shifts/open',{method:'POST',body:JSON.stringify({openingCash:0})});await w.syncFromServer();await w.submitShiftReport({preventDefault(){}});assert.match(w.document.getElementById('shift-report-status').textContent,/cerrado/);assert.equal(w.eval('state.shift.isOpen'),true);assert.notEqual(w.eval('state.shift.id'),countedShift);w.closeFloating('shift-report-dialog');
  // Connection modes validate health and keep pending operations on their original server.

@@ -24,7 +24,13 @@ const fs=require('fs'),os=require('os'),path=require('path'),{spawn}=require('ch
  if(process.env.POS_SCREENSHOT_DIR){fs.mkdirSync(process.env.POS_SCREENSHOT_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.POS_SCREENSHOT_DIR,'ventas-escritorio.png'),fullPage:true});}
 
  await page.click('#sale-inventory-btn');await page.fill('#sale-inventory-search','cafe');await page.fill('#stock-qty-1','2');await page.click('#stock-add-1');assert.equal(await page.evaluate(()=>cart[0].qty),2);await page.keyboard.press('Escape');assert.equal(await page.evaluate(()=>document.activeElement.id),'sale-inventory-btn');await page.click('[data-workspace=home]');assert.equal(await page.evaluate(()=>cart[0].qty),2);await page.click('[data-home-action=sale]');await page.click('#clear-cart-btn');
- await page.click('[data-module=cash]');await page.click('#toggle-shift-btn');await page.waitForFunction(()=>state.shift.isOpen);
+ await page.click('[data-module=cash]');await page.click('#toggle-shift-btn');await page.locator('#shift-open-dialog').waitFor({state:'visible'});
+ assert.equal(await page.evaluate(()=>document.activeElement.id),'shift-opening-cash');
+ await page.keyboard.press('Escape');assert.equal(await page.evaluate(()=>state.shift.isOpen),false);
+ await page.click('#toggle-shift-btn');await page.setViewportSize({width:390,height:844});
+ assert.ok(await page.locator('#shift-open-dialog').evaluate(el=>el.getBoundingClientRect().width<=innerWidth));
+ if(process.env.POS_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.POS_SCREENSHOT_DIR,'abrir-turno.png'),fullPage:true});
+ await page.setViewportSize({width:1600,height:1000});await page.click('#shift-open-submit');await page.waitForFunction(()=>state.shift.isOpen);
  await page.click('[data-module=pos]');await page.fill('#search-input','Café');await page.click('#sale-entry-add');await page.click('#process-sale-btn');await page.locator('#billing-modal:not(.hidden)').waitFor();assert.equal(await page.inputValue('#billing-cash-received'),'4.50');
  assert.equal(await page.locator('#cart-list tr.sale-line').count(),1);
  await page.click('#confirm-billing-btn');await page.waitForFunction(()=>state.sales.length===1 && !saleInFlight);assert.equal(await page.evaluate(()=>state.products[0].stock),4);

@@ -1,6 +1,14 @@
-# Instalación de POS Control 1.3.0
+# Instalación de POS Control 1.3.1
 
 El escritorio incluye su propio servidor. Android puede usar un servidor externo o uno en el mismo teléfono mediante Termux; iOS continúa como terminal de un servidor externo. El servidor elegido debe permanecer activo. El APK no incluye todavía un backend integrado. [Guía del servidor Android y envío de documentos](docs/ANDROID_SERVIDOR_LOCAL.md).
+
+## Guías de la versión actual
+
+- [Instalación paso a paso 1.3.1](docs/INSTALACION_1.3.1.md).
+- [Actualización con respaldo y recuperación](docs/ACTUALIZACION_1.3.1.md).
+- [Correcciones y validación 1.3.1](docs/CAMBIOS_1.3.1.md).
+
+La lista `CONTENIDO-Y-VALIDACION.txt` de cada entrega identifica sus paquetes reales. Las notas históricas siguientes no significan que todos los binarios estén disponibles en una ejecución nueva.
 
 ## Cambios 1.3.0
 
@@ -22,7 +30,7 @@ En 1.2.1 pasaron 64 pruebas del servidor (incluido el recorrido DOM con HTTP rea
 
 El código 1.2.0 está en `fix/backend-auth-sales-sync`. Pasaron 59 pruebas del servidor, 4 de instalación y los dos recorridos de Chromium. El backend empaquetado en Linux arrancó con el Node integrado, sirvió los recursos públicos, autenticó al administrador y conservó un producto después del reinicio. Se generaron paquetes Linux AppImage, DEB y TAR.GZ localmente. El asistente se comprobó en navegador; la apertura de la ventana nativa no pudo ejecutarse en este entorno por restricciones de sockets del sistema.
 
-La ejecución [Installers del 14 de octubre de 2026](https://github.com/josue7885/pos-de-ventas-/actions/runs/38500460194) quedó bloqueada **antes de ejecutar pruebas o compilaciones**. GitHub informó: `The job was not started because your account is locked due to a billing issue.` No hay paquetes descargables de esa ejecución. El titular debe revisar la facturación de GitHub y después volver a ejecutar los trabajos. Esa ejecución no generó instaladores nativos. Posteriormente el usuario compiló e instaló el APK Android 1.2.0 localmente y confirmó su funcionamiento conectado al servidor. Windows/macOS/iOS siguen pendientes de compilación y validación nativa.
+La ejecución [Installers del 14 de octubre de 2026](https://github.com/josue7885/pos-de-ventas-/actions/runs/38500460194) quedó bloqueada **antes de ejecutar pruebas o compilaciones**. GitHub informó: `The job was not started because your account is locked due to a billing issue.` No hay paquetes descargables de esa ejecución. El titular debe revisar la facturación de GitHub y después volver a ejecutar los trabajos. Esa ejecución no generó instaladores nativos. Posteriormente el usuario compiló e instaló el APK Android 1.2.0 localmente y confirmó su funcionamiento conectado al servidor. Ese fue el estado de aquella ejecución; consulta la lista de contenido y validación de la entrega actual para Windows/Linux. La validación física de cada plataforma sigue siendo independiente de compilar sus binarios.
 
 Mientras se resuelve GitHub Actions puedes compilar localmente con los comandos de esta guía. No se modificó la facturación ni se contrató ningún servicio.
 
@@ -40,7 +48,7 @@ Abre [Actions → Installers](https://github.com/josue7885/pos-de-ventas-/action
 | iPhone / iPad | `iOS-Simulador.zip` | Solo simulador de Xcode; **no es un IPA instalable en teléfonos** |
 | Navegador, incluido móvil | URL del servidor | No requiere instalar la aplicación |
 
-Los nombres incluyen `POS-Control-1.2.0`. Cada trabajo de compilación publica su propio paquete; un trabajo fallido no implica que exista su instalador. Los binarios de escritorio de esta automatización no llevan certificado de editor. El APK usa una clave de prueba regenerada por el entorno: para actualizaciones continuas utiliza una clave de distribución propia. macOS requiere firma y notarización para distribución pública sin avisos; iOS requiere un equipo Apple y perfiles de firma. No desactives las protecciones del sistema de forma global.
+Los paquetes nuevos usan la versión de `package.json` (1.3.1 en esta revisión); los artefactos antiguos conservan su versión original. Cada trabajo de compilación publica su propio paquete; un trabajo fallido no implica que exista su instalador. Los binarios de escritorio de esta automatización no llevan certificado de editor. El APK usa una clave de prueba regenerada por el entorno: para actualizaciones continuas utiliza una clave de distribución propia. macOS requiere firma y notarización para distribución pública sin avisos; iOS requiere un equipo Apple y perfiles de firma. No desactives las protecciones del sistema de forma global.
 
 ## Primer inicio
 

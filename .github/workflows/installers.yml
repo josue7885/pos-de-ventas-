@@ -6,10 +6,15 @@ on:
     paths:
       - '.github/workflows/installers.yml'
       - 'package*.json'
-      - 'electron-main.js'
+      - '*.js'
+      - '*.html'
+      - '*.css'
+      - '*.svg'
+      - '*.webmanifest'
+      - 'server/**'
+      - 'tests/**'
       - 'desktop/**'
       - 'scripts/prepare-*.cjs'
-      - 'native-platform.js'
       - 'capacitor.config.json'
 permissions:
   contents: read
@@ -61,6 +66,12 @@ jobs:
       - run: npm ci
       - run: ${{ matrix.command }}
       - run: node scripts/test-packaged.cjs "${{ matrix.bundle }}"
+      - name: Portable Windows folder (keeps ICU and resources beside the executable)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          Compress-Archive -Path dist/win-unpacked/* -DestinationPath "dist/POS-Control-$version-Windows-x64-Carpeta.zip"
       - run: npm run checksums
       - uses: actions/upload-artifact@v4
         with:

@@ -1,4 +1,6 @@
-# POS Control
+# POS Control 1.3.1
+
+**Versión actual:** corrección de apertura de turno y correo en escritorio. Consulta [instalación paso a paso](docs/INSTALACION_1.3.1.md), [actualización y respaldos](docs/ACTUALIZACION_1.3.1.md) y [cambios/validación](docs/CAMBIOS_1.3.1.md).
 
 Punto de venta web con Node.js, Express y SQLite. Permite administrar varios negocios con usuarios, ventas, inventario, clientes, caja y configuración independientes. Incluye perfiles para tiendas, restaurantes, servicios y negocios mixtos. Los navegadores sincronizan cada 3 segundos dentro del negocio seleccionado.
 
@@ -67,7 +69,7 @@ El cliente usa el origen desde el que se abrió. El botón **Configurar servidor
 
 ## Alcance de comprobantes
 
-El PDF es un **comprobante interno sin autorización fiscal**. La integración de Hacienda recuperada era una plantilla sin firma ni envío real. Los endpoints de activación/envío responden `501` para evitar presentar esa integración como operativa. La impresión, los PDF, los JSON y los adjuntos de correo de ventas y cotizaciones salen del mismo documento del servidor. Los nuevos documentos conservan el perfil público del emisor al emitirse; los anteriores sin perfil guardado indican que muestran la configuración actual. El cobro puede imprimir un ticket de 80 mm o descargar un PDF A4, y enviar automáticamente PDF/JSON al cliente si la casilla de correo está marcada y SMTP está configurado. Los reintentos de la misma venta no repiten automáticamente el correo; el reenvío manual sigue disponible. Las pruebas envían exclusivamente a un receptor SMTP local de prueba y comparan sus adjuntos con las descargas; la entrega con tu proveedor requiere validación adicional. La preparación de instaladores 1.2.0 y los requisitos de firma se describen en [README_RELEASE.md](README_RELEASE.md).
+El PDF es un **comprobante interno sin autorización fiscal**. La integración de Hacienda recuperada era una plantilla sin firma ni envío real. Los endpoints de activación/envío responden `501` para evitar presentar esa integración como operativa. La impresión, los PDF, los JSON y los adjuntos de correo de ventas y cotizaciones salen del mismo documento del servidor. Los nuevos documentos conservan el perfil público del emisor al emitirse; los anteriores sin perfil guardado indican que muestran la configuración actual. El cobro puede imprimir un ticket de 80 mm o descargar un PDF A4, y enviar automáticamente PDF/JSON al cliente si la casilla de correo está marcada y SMTP está configurado. Los reintentos de la misma venta no repiten automáticamente el correo; el reenvío manual sigue disponible. Las pruebas envían exclusivamente a un receptor SMTP local de prueba y comparan sus adjuntos con las descargas; la entrega con tu proveedor requiere validación adicional. La preparación de instaladores y los requisitos de firma se describen en [README_RELEASE.md](README_RELEASE.md).
 
 ## Pruebas
 

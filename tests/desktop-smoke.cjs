@@ -12,9 +12,16 @@ const {_electron}=require('playwright'),fs=require('node:fs'),os=require('node:o
   const next=app.waitForEvent('window');await page.click('#start');page=await next;await page.locator('#employee-select option').waitFor({state:'attached'});
   assert.equal(await page.evaluate(()=>typeof window.posSetup),'undefined');assert.equal(await page.evaluate(()=>typeof require),'undefined');
   await page.fill('#pin-input','852963');await page.click('#login-btn');await page.locator('#app-shell:not(.hidden)').waitFor();
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.click('[data-home-action=sale]');await page.click('[data-module=cash]');
+  await page.click('#toggle-shift-btn');await page.locator('#shift-open-dialog').waitFor({state:'visible'});
+  await page.fill('#shift-opening-cash','25.50');await page.click('#shift-open-submit');
+  await page.waitForFunction(()=>state.shift.isOpen&&state.shift.openingCash===25.5);
+  await page.click('#toggle-shift-btn');await page.fill('#shift-report-count','25.50');await page.selectOption('#shift-report-output','save');await page.click('#shift-report-submit');
+  await page.waitForFunction(()=>!state.shift.isOpen);assert.deepEqual(errors,[]);
   const userData=await app.evaluate(({app})=>app.getPath('userData'));const config=JSON.parse(fs.readFileSync(path.join(userData,'installation.json')));assert.equal(config.port,port);assert.equal(config.pin,undefined);
   assert.equal(fs.existsSync(path.join(dir,'data/pos.db')),true);await app.close();app=null;
   app=await _electron.launch({args:[path.resolve(__dirname,'..'),'--user-data-dir='+path.join(dir,'profile')],env});page=await app.firstWindow();await page.locator('#employee-select option').waitFor({state:'attached'});assert.equal(new URL(page.url()).port,String(port));
-  await page.fill('#pin-input','852963');await page.click('#login-btn');await page.locator('#app-shell:not(.hidden)').waitFor();console.log('Desktop OK: first-run setup, isolated bridge, login, fixed port and restart.');
+  await page.fill('#pin-input','852963');await page.click('#login-btn');await page.locator('#app-shell:not(.hidden)').waitFor();console.log('Desktop OK: first-run setup, isolated bridge, login, opening/closing shifts without prompt, fixed port and restart.');
  }finally{await app?.close();fs.rmSync(dir,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);process.exitCode=1;});

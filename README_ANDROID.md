@@ -1,3 +1,5 @@
+> Versión actual: **1.3.1**. Consulta [instalación](docs/INSTALACION_1.3.1.md) y [actualización sin perder datos](docs/ACTUALIZACION_1.3.1.md). Actualizar el servidor no recompila el APK. El usuario confirmó el funcionamiento en Android/Termux de la versión anterior; esta revisión requiere comprobar el APK nuevo en el dispositivo.
+
 ## Actualización 1.3.0: teléfono como servidor
 
 El servidor completo puede iniciarse mediante Termux en Android. En la app, elige **Configurar servidor → Servidor en este teléfono / dispositivo** y conecta a `http://127.0.0.1:3000`. Termux debe permanecer activo. Este modo conserva los datos aparte de la computadora y requiere instalar el servidor una vez.
